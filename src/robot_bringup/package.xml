@@ -17,6 +17,7 @@
 
   <!-- Nodes used in bringup -->
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>robot_vision</exec_depend>
 
   <!-- External driver package (you run it via launch) -->
   <exec_depend>rplidar_ros</exec_depend>
