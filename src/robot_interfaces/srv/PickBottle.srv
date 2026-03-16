@@ -1,0 +1,5 @@
+robot_interfaces/TargetBottle target
+---
+bool accepted
+string message
+

@@ -1,25 +1,18 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_bringup</name>
+  <name>robot_description</name>
   <version>0.0.1</version>
-  <description>Bringup launch/config for the robot</description>
+  <description>URDF/Xacro and meshes for robot model</description>
 
   <maintainer email="hailinh13092006@gmail.com">linh-pham</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Runtime deps for launch files -->
-  <exec_depend>launch</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>ament_index_python</exec_depend>
-
-  <!-- Nodes used in bringup -->
-  <exec_depend>tf2_ros</exec_depend>
-
-  <!-- External driver package (you run it via launch) -->
-  <exec_depend>rplidar_ros</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
