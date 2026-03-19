@@ -41,6 +41,11 @@ def generate_launch_description():
         default_value='10.0',
         description='Seconds between map save snapshots.',
     )
+    map_save_use_timestamp_arg = DeclareLaunchArgument(
+        'map_save_use_timestamp',
+        default_value='true',
+        description='If true, append timestamp suffix to each saved map snapshot.',
+    )
 
     sensors = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(sensors_launch),
@@ -81,6 +86,7 @@ def generate_launch_description():
             {
                 'save_path': LaunchConfiguration('map_save_path'),
                 'interval_sec': LaunchConfiguration('map_save_interval_sec'),
+                'use_timestamp_suffix': LaunchConfiguration('map_save_use_timestamp'),
             }
         ],
         condition=IfCondition(LaunchConfiguration('enable_auto_save_map')),
@@ -97,6 +103,7 @@ def generate_launch_description():
         enable_auto_save_map_arg,
         map_save_path_arg,
         map_save_interval_sec_arg,
+        map_save_use_timestamp_arg,
         sensors,
         localization,
         bootstrap_odom_tf,

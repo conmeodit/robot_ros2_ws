@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import os
+from datetime import datetime
 from pathlib import Path
 
 import rclpy
@@ -15,9 +15,11 @@ class MapAutoSaver(Node):
 
         self.declare_parameter('save_path', '/home/linh-pham/robot_maps/live_map')
         self.declare_parameter('interval_sec', 10.0)
+        self.declare_parameter('use_timestamp_suffix', True)
 
         self.save_path = str(self.get_parameter('save_path').value)
         self.interval_sec = float(self.get_parameter('interval_sec').value)
+        self.use_timestamp_suffix = bool(self.get_parameter('use_timestamp_suffix').value)
 
         if self.interval_sec < 1.0:
             self.get_logger().warn('interval_sec < 1.0 is too aggressive, using 1.0 sec.')
@@ -30,7 +32,9 @@ class MapAutoSaver(Node):
         self.pending: Future | None = None
 
         self.get_logger().info(
-            f'Auto-save enabled. Path={self.save_path}, interval={self.interval_sec:.1f}s'
+            'Auto-save enabled. '
+            f'Path={self.save_path}, interval={self.interval_sec:.1f}s, '
+            f'use_timestamp_suffix={self.use_timestamp_suffix}'
         )
 
         self.timer = self.create_timer(self.interval_sec, self._on_timer)
@@ -45,14 +49,21 @@ class MapAutoSaver(Node):
             return
 
         req = SaveMap.Request()
-        req.name.data = self.save_path
+        req.name.data = self._build_save_path()
         self.pending = self.client.call_async(req)
         self.pending.add_done_callback(self._on_save_done)
+
+    def _build_save_path(self) -> str:
+        if not self.use_timestamp_suffix:
+            return self.save_path
+
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return f'{self.save_path}_{stamp}'
 
     def _on_save_done(self, future: Future) -> None:
         try:
             _ = future.result()
-            self.get_logger().info(f'Map snapshot saved to {self.save_path}.yaml/.pgm')
+            self.get_logger().info('Map snapshot saved successfully.')
         except Exception as exc:  # noqa: BLE001
             self.get_logger().error(f'Failed to save map snapshot: {exc}')
 
