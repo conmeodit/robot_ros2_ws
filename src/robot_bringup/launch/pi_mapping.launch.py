@@ -65,7 +65,7 @@ def generate_launch_description():
         laser_pitch_arg,
         laser_yaw_arg,
         publish_bootstrap_odom_tf_arg,
+        bootstrap_odom_tf,
         sensors,
         localization,
-        bootstrap_odom_tf,
     ])
