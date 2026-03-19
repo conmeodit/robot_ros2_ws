@@ -26,26 +26,6 @@ def generate_launch_description():
         default_value='true',
         description='Publish static odom->base_link for mapping bootstrap when wheel odom is not available.',
     )
-    enable_auto_save_map_arg = DeclareLaunchArgument(
-        'enable_auto_save_map',
-        default_value='true',
-        description='Automatically save map snapshots while mapping runs.',
-    )
-    map_save_path_arg = DeclareLaunchArgument(
-        'map_save_path',
-        default_value='/home/linh-pham/robot_maps/live_map',
-        description='Base path to save map files (without extension).',
-    )
-    map_save_interval_sec_arg = DeclareLaunchArgument(
-        'map_save_interval_sec',
-        default_value='10.0',
-        description='Seconds between map save snapshots.',
-    )
-    map_save_use_timestamp_arg = DeclareLaunchArgument(
-        'map_save_use_timestamp',
-        default_value='true',
-        description='If true, append timestamp suffix to each saved map snapshot.',
-    )
 
     sensors = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(sensors_launch),
@@ -77,21 +57,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('publish_bootstrap_odom_tf')),
     )
 
-    map_auto_saver = Node(
-        package='robot_bringup',
-        executable='map_auto_saver.py',
-        name='map_auto_saver',
-        output='screen',
-        parameters=[
-            {
-                'save_path': LaunchConfiguration('map_save_path'),
-                'interval_sec': LaunchConfiguration('map_save_interval_sec'),
-                'use_timestamp_suffix': LaunchConfiguration('map_save_use_timestamp'),
-            }
-        ],
-        condition=IfCondition(LaunchConfiguration('enable_auto_save_map')),
-    )
-
     return LaunchDescription([
         laser_x_arg,
         laser_y_arg,
@@ -100,12 +65,7 @@ def generate_launch_description():
         laser_pitch_arg,
         laser_yaw_arg,
         publish_bootstrap_odom_tf_arg,
-        enable_auto_save_map_arg,
-        map_save_path_arg,
-        map_save_interval_sec_arg,
-        map_save_use_timestamp_arg,
         sensors,
         localization,
         bootstrap_odom_tf,
-        map_auto_saver,
     ])
