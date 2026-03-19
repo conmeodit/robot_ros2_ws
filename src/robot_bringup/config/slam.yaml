@@ -2,7 +2,7 @@ slam_toolbox:
   ros__parameters:
     mode: mapping
     map_frame: map
-    odom_frame: odom
+    odom_frame: base_link
     base_frame: base_link
     scan_topic: /scan
     use_map_saver: true
