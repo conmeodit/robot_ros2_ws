@@ -1,0 +1,9 @@
+mega_bridge_node:
+  ros__parameters:
+    port: /dev/rfcomm0
+    baudrate: 115200
+    cmd_vel_topic: /cmd_vel
+    status_topic: /base/status
+    write_rate_hz: 20.0
+    cmd_vel_timeout_sec: 0.5
+    read_enabled: true

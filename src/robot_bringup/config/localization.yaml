@@ -1,0 +1,10 @@
+wheel_odom_node:
+  ros__parameters:
+    status_topic: /base/status
+    odom_topic: /odom
+    odom_frame: odom
+    base_frame: base_link
+    wheel_radius_m: 0.065
+    wheel_base_m: 0.32
+    ticks_per_rev: 600
+    publish_tf: true

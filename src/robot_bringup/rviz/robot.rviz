@@ -1,4 +1,3 @@
-cat << 'EOF' > ~/robot_ros2_ws/src/robot_bringup/rviz/robot.rviz
 Panels:
   - Class: rviz_common/Displays
     Help Height: 78
@@ -137,13 +136,18 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz_default_plugins/TopDownOrtho
+      Class: rviz_default_plugins/Orbit
       Name: Current View
-      Scale: 50
+      Distance: 2.5
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.2
+      Pitch: 0.7
+      Yaw: 0.8
       Target Frame: <Fixed Frame>
-      Value: TopDownOrtho (rviz)
+      Value: Orbit (rviz)
     Saved: ~
 Window Geometry:
   Height: 800
   Width: 1200
-EOF
