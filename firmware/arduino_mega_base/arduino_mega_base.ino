@@ -21,12 +21,12 @@ static const uint8_t RIGHT_ENC_A_PIN = 18;
 static const uint8_t RIGHT_ENC_B_PIN = 19;
 
 // Arm servos (2 servos for lifting joint)
-static const uint8_t SERVO_1_PIN = 30;
-static const uint8_t SERVO_2_LEFT_PIN = 31;
-static const uint8_t SERVO_2_RIGHT_PIN = 32;
-static const uint8_t SERVO_3_PIN = 33;
-static const uint8_t SERVO_4_PIN = 34;
-static const uint8_t SERVO_5_PIN = 35;
+static const uint8_t SERVO_1_PIN = 22;
+static const uint8_t SERVO_2_LEFT_PIN = 23;
+static const uint8_t SERVO_2_RIGHT_PIN = 24;
+static const uint8_t SERVO_3_PIN = 25;
+static const uint8_t SERVO_4_PIN = 26;
+static const uint8_t SERVO_5_PIN = 27;
 
 // =========================
 // Robot Parameters (adjust)
