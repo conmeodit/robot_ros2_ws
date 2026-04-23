@@ -368,7 +368,7 @@ void setupPins() {
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(115200); // HC-05 on Mega Serial2 (D16/D17)
+  Serial2.begin(9600); // HC-05 on Mega Serial2 (D16/D17) - HC-05 default baud rate
 
   setupPins();
   cmd_buffer.reserve(128);
