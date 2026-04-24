@@ -1,69 +1,422 @@
-#include <Wire.h>
+#include <Arduino.h>
+#include <Servo.h>
+#include <Wire.h> 
 
-void setup() {
-  Wire.begin();
+// =========================
+// Cấu hình phần cứng Động cơ & Encoder
+// =========================
+static const uint8_t LEFT_RPWM_PIN = 5;
+static const uint8_t LEFT_LPWM_PIN = 6;
+static const uint8_t RIGHT_RPWM_PIN = 7;
+static const uint8_t RIGHT_LPWM_PIN = 8;
+
+static const uint8_t LEFT_ENC_A_PIN = 2;
+static const uint8_t LEFT_ENC_B_PIN = 3;
+static const uint8_t RIGHT_ENC_A_PIN = 18;
+static const uint8_t RIGHT_ENC_B_PIN = 19;
+
+// =========================
+// Cấu hình Arm Servos
+// =========================
+static const uint8_t SERVO_1_PIN = 22;
+static const uint8_t SERVO_2_LEFT_PIN = 23;
+static const uint8_t SERVO_2_RIGHT_PIN = 24;
+static const uint8_t SERVO_3_PIN = 25;
+static const uint8_t SERVO_4_PIN = 26;
+static const uint8_t SERVO_5_PIN = 27;
+
+// =========================
+// MPU6500 Configuration
+// =========================
+const int MPU_ADDR = 0x68; // Địa chỉ I2C chuẩn của MPU6500
+int16_t accelX = 0, accelY = 0, accelZ = 0, gyroX = 0, gyroY = 0, gyroZ = 0;
+
+// =========================
+// Robot Parameters & PID
+// =========================
+static const float WHEEL_RADIUS_M = 0.065f;
+static const float WHEEL_BASE_M = 0.32f;
+static const int32_t TICKS_PER_REV = 600;
+
+static const float CONTROL_DT_SEC = 0.02f;   // 50 Hz
+static const float TELEMETRY_DT_SEC = 0.05f; // 20 Hz
+static const uint32_t CMD_TIMEOUT_MS = 500;
+
+static const float KP = 55.0f;
+static const float KI = 30.0f;
+static const float KD = 1.0f;
+static const float MAX_RPS = 5.0f;
+
+// =========================
+// Global Variables
+// =========================
+volatile int32_t g_left_ticks = 0;
+volatile int32_t g_right_ticks = 0;
+
+float target_left_rps = 0.0f;
+float target_right_rps = 0.0f;
+float meas_left_rps = 0.0f;
+float meas_right_rps = 0.0f;
+
+float left_integral = 0.0f, right_integral = 0.0f;
+float left_prev_err = 0.0f, right_prev_err = 0.0f;
+
+bool estop = false;
+bool motor_enabled = true;
+bool fault = false;
+String fault_text = "OK";
+String mode = "AUTO";
+
+uint32_t last_cmd_ms = 0;
+uint32_t last_control_us = 0;
+uint32_t last_telemetry_us = 0;
+
+String cmd_buffer;
+Servo g_servo_1;
+Servo g_servo_2_left, g_servo_2_right;
+Servo g_servo_3, g_servo_4, g_servo_5;
+
+// =========================
+// Hàm điều khiển khớp Servo đôi (Quan trọng)
+// =========================
+void setJoint2Angle(int deg) {
+  deg = constrain(deg, 0, 180); // Giới hạn góc an toàn
   
-  // Khởi tạo Serial máy tính (dự phòng)
-  Serial.begin(115200); 
+  int leftAngle = deg;
+  int rightAngle = 180 - deg;   // Servo đối diện quay ngược lại
   
-  // Khởi tạo giao tiếp với HC-05 qua cổng Serial2 của Mega
-  Serial2.begin(9600);  
-  
-  delay(2000); // Chờ HC-05 khởi động
-  
-  Serial.println("\n--- Bat dau quet I2C ---");
-  Serial2.println("\n--- Bat dau quet I2C ---");
+  g_servo_2_left.write(leftAngle);
+  g_servo_2_right.write(rightAngle);
 }
 
-void loop() {
-  byte error, address;
-  int nDevices;
+// =========================
+// Interrupts Encoders
+// =========================
+void leftEncISR() {
+  bool a = digitalRead(LEFT_ENC_A_PIN);
+  bool b = digitalRead(LEFT_ENC_B_PIN);
+  g_left_ticks += (a == b) ? 1 : -1;
+}
 
-  Serial.println("Dang quet...");
-  Serial2.println("Dang quet...");
+void rightEncISR() {
+  bool a = digitalRead(RIGHT_ENC_A_PIN);
+  bool b = digitalRead(RIGHT_ENC_B_PIN);
+  g_right_ticks += (a == b) ? 1 : -1;
+}
 
-  nDevices = 0;
-  // Quét các địa chỉ từ 1 đến 127
-  for(address = 1; address < 127; address++ ) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
+// =========================
+// MPU6500 Functions
+// =========================
+void setupMPU() {
+  Wire.begin();
+  // Bật tính năng chống treo mạch nếu lỏng dây I2C
+  Wire.setWireTimeout(3000, true); 
 
-    if (error == 0) {
-      Serial.print("Tim thay I2C tai dia chi 0x");
-      Serial2.print("Tim thay I2C tai dia chi 0x");
-      
-      if (address < 16) {
-        Serial.print("0");
-        Serial2.print("0");
-      }
-      
-      Serial.println(address, HEX);
-      Serial2.println(address, HEX);
-      
-      nDevices++;
-    }
-    else if (error == 4) {
-      Serial.print("Loi khong xac dinh tai 0x");
-      Serial2.print("Loi khong xac dinh tai 0x");
-      
-      if (address < 16) {
-        Serial.print("0");
-        Serial2.print("0");
-      }
-      
-      Serial.println(address, HEX);
-      Serial2.println(address, HEX);
-    }    
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B); // Thanh ghi Power Management
+  Wire.write(0);    // Đánh thức MPU (Set về 0)
+  Wire.endTransmission(true);
+}
+
+void readMPU() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B); // Thanh ghi bắt đầu đọc (ACCEL_XOUT_H)
+  if (Wire.endTransmission(false) != 0) {
+    return; // Thoát nếu không tìm thấy MPU để tránh dữ liệu rác
   }
   
-  if (nDevices == 0) {
-    Serial.println("Khong tim thay module I2C nao.\n");
-    Serial2.println("Khong tim thay module I2C nao.\n");
-  } else {
-    Serial.println("Quet xong.\n");
-    Serial2.println("Quet xong.\n");
+  Wire.requestFrom(MPU_ADDR, 14, true); 
+
+  if (Wire.available() == 14) {
+    accelX = Wire.read() << 8 | Wire.read();
+    accelY = Wire.read() << 8 | Wire.read();
+    accelZ = Wire.read() << 8 | Wire.read();
+    Wire.read(); Wire.read(); // Bỏ qua nhiệt độ
+    gyroX = Wire.read() << 8 | Wire.read();
+    gyroY = Wire.read() << 8 | Wire.read();
+    gyroZ = Wire.read() << 8 | Wire.read();
+  }
+}
+
+// =========================
+// Motor Control Functions
+// =========================
+void setMotorPWM(int16_t left_pwm, int16_t right_pwm) {
+  left_pwm = constrain(left_pwm, -255, 255);
+  right_pwm = constrain(right_pwm, -255, 255);
+
+  if (!motor_enabled || estop) {
+    left_pwm = 0; right_pwm = 0;
   }
 
-  // Chờ 5 giây rồi tiến hành quét lại
-  delay(5000); 
+  // Điều khiển trái
+  if (left_pwm >= 0) {
+    analogWrite(LEFT_RPWM_PIN, left_pwm);
+    analogWrite(LEFT_LPWM_PIN, 0);
+  } else {
+    analogWrite(LEFT_RPWM_PIN, 0);
+    analogWrite(LEFT_LPWM_PIN, -left_pwm);
+  }
+
+  // Điều khiển phải
+  if (right_pwm >= 0) {
+    analogWrite(RIGHT_RPWM_PIN, right_pwm);
+    analogWrite(RIGHT_LPWM_PIN, 0);
+  } else {
+    analogWrite(RIGHT_RPWM_PIN, 0);
+    analogWrite(RIGHT_LPWM_PIN, -right_pwm);
+  }
+}
+
+void stopMotorsAndResetPID() {
+  left_integral = 0.0f; right_integral = 0.0f;
+  left_prev_err = 0.0f; right_prev_err = 0.0f;
+  target_left_rps = 0.0f; target_right_rps = 0.0f;
+  setMotorPWM(0, 0);
+}
+
+void setCmdVel(float linear_x, float angular_z) {
+  float v_left = linear_x - angular_z * (WHEEL_BASE_M * 0.5f);
+  float v_right = linear_x + angular_z * (WHEEL_BASE_M * 0.5f);
+
+  float wheel_circ = 2.0f * PI * WHEEL_RADIUS_M;
+  target_left_rps = v_left / wheel_circ;
+  target_right_rps = v_right / wheel_circ;
+
+  target_left_rps = constrain(target_left_rps, -MAX_RPS, MAX_RPS);
+  target_right_rps = constrain(target_right_rps, -MAX_RPS, MAX_RPS);
+}
+
+// =========================
+// Bluetooth HC-05 Parsing
+// =========================
+void parseCommand(const String &line) {
+  if (line.length() == 0) return;
+
+  // 1. CHẾ ĐỘ ĐIỀU KHIỂN BẰNG APP ĐIỆN THOẠI (1 Ký tự)
+  if (line.length() == 1) {
+    char c = line[0];
+    float v = 0.0f, w = 0.0f;
+    float speed = 0.5f; // Tốc độ chạy (m/s)
+    float turn = 1.5f;  // Tốc độ xoay (rad/s)
+
+    if (c == 'F') { v = speed; w = 0; }
+    else if (c == 'B') { v = -speed; w = 0; }
+    else if (c == 'L') { v = 0; w = turn; }
+    else if (c == 'R') { v = 0; w = -turn; }
+    else if (c == 'S') { v = 0; w = 0; }
+
+    if (c == 'F' || c == 'B' || c == 'L' || c == 'R' || c == 'S') {
+      setCmdVel(v, w);
+      last_cmd_ms = millis();
+      return;
+    }
+  }
+
+  // 2. CHẾ ĐỘ NHẬN CHUỖI LỆNH ĐẦY ĐỦ
+  int p1 = line.indexOf(',');
+  String cmd = (p1 < 0) ? line : line.substring(0, p1);
+
+  if (cmd == "CMD_VEL") {
+    int p2 = line.indexOf(',', p1 + 1);
+    if (p1 < 0 || p2 < 0) return;
+    float v = line.substring(p1 + 1, p2).toFloat();
+    float w = line.substring(p2 + 1).toFloat();
+    setCmdVel(v, w);
+    last_cmd_ms = millis();
+    return;
+  }
+
+  if (cmd == "ESTOP") {
+    int val = line.substring(p1 + 1).toInt();
+    estop = (val != 0);
+    if (estop) stopMotorsAndResetPID();
+    return;
+  }
+
+  if (cmd == "MOTOR") {
+    int val = line.substring(p1 + 1).toInt();
+    motor_enabled = (val != 0);
+    if (!motor_enabled) stopMotorsAndResetPID();
+    return;
+  }
+
+  if (cmd == "SERVO") {
+    int p2 = line.indexOf(',', p1 + 1);
+    if (p1 < 0 || p2 < 0) return;
+    int id = line.substring(p1 + 1, p2).toInt();
+    int deg = line.substring(p2 + 1).toInt();
+    deg = constrain(deg, 0, 180);
+
+    switch (id) {
+      case 1: g_servo_1.write(deg); break;
+      case 2: setJoint2Angle(deg);  break; // Gọi hàm đồng bộ 2 servo
+      case 3: g_servo_3.write(deg); break;
+      case 4: g_servo_4.write(deg); break;
+      case 5: g_servo_5.write(deg); break;
+    }
+    return;
+  }
+}
+
+void readCommands() {
+  while (Serial2.available() > 0) {
+    char c = (char)Serial2.read();
+    if (c == '\n' || c == '\r') {
+      if (cmd_buffer.length() > 0) {
+        parseCommand(cmd_buffer);
+        cmd_buffer = "";
+      }
+    } else {
+      if (cmd_buffer.length() < 120) {
+        cmd_buffer += c;
+      }
+    }
+  }
+}
+
+// =========================
+// PID Control Loop
+// =========================
+int16_t pidStep(float target_rps, float meas_rps, float &integral, float &prev_err, float dt) {
+  float err = target_rps - meas_rps;
+  integral += err * dt;
+  integral = constrain(integral, -8.0f, 8.0f);
+
+  float deriv = (err - prev_err) / dt;
+  prev_err = err;
+
+  float u = KP * err + KI * integral + KD * deriv;
+  int16_t pwm = (int16_t)constrain((int)lround(u), -255, 255);
+  return pwm;
+}
+
+void controlLoop() {
+  uint32_t now_us = micros();
+  float dt = (now_us - last_control_us) * 1e-6f;
+  if (dt < CONTROL_DT_SEC) return;
+  last_control_us = now_us;
+
+  static int32_t last_left_ticks = 0;
+  static int32_t last_right_ticks = 0;
+
+  noInterrupts();
+  int32_t left_ticks = g_left_ticks;
+  int32_t right_ticks = g_right_ticks;
+  interrupts();
+
+  int32_t dleft = left_ticks - last_left_ticks;
+  int32_t dright = right_ticks - last_right_ticks;
+  last_left_ticks = left_ticks;
+  last_right_ticks = right_ticks;
+
+  meas_left_rps = ((float)dleft / (float)TICKS_PER_REV) / dt;
+  meas_right_rps = ((float)dright / (float)TICKS_PER_REV) / dt;
+
+  bool cmd_timeout = (millis() - last_cmd_ms) > CMD_TIMEOUT_MS;
+  if (cmd_timeout) {
+    target_left_rps = 0.0f;
+    target_right_rps = 0.0f;
+  }
+
+  if (!motor_enabled || estop) {
+    stopMotorsAndResetPID();
+    return;
+  }
+
+  int16_t left_pwm = pidStep(target_left_rps, meas_left_rps, left_integral, left_prev_err, dt);
+  int16_t right_pwm = pidStep(target_right_rps, meas_right_rps, right_integral, right_prev_err, dt);
+  setMotorPWM(left_pwm, right_pwm);
+}
+
+// =========================
+// Telemetry (Gửi dữ liệu về HC-05)
+// =========================
+void sendTelemetry() {
+  uint32_t now_us = micros();
+  float dt = (now_us - last_telemetry_us) * 1e-6f;
+  if (dt < TELEMETRY_DT_SEC) return;
+  last_telemetry_us = now_us;
+
+  noInterrupts();
+  int32_t left_ticks = g_left_ticks;
+  int32_t right_ticks = g_right_ticks;
+  interrupts();
+
+  readMPU(); // Cập nhật dữ liệu từ cảm biến
+
+  // Gửi trạng thái và dữ liệu MPU6500 qua Bluetooth
+  Serial2.print("STAT,");
+  Serial2.print(mode); Serial2.print(',');
+  Serial2.print(estop ? 1 : 0); Serial2.print(',');
+  Serial2.print(motor_enabled ? 1 : 0); Serial2.print(',');
+  Serial2.print(left_ticks); Serial2.print(',');
+  Serial2.print(right_ticks); Serial2.print(',');
+  Serial2.print(-1.0f, 2); Serial2.print(','); 
+  Serial2.print(-1.0f, 2); Serial2.print(','); 
+  Serial2.print(fault ? 1 : 0); Serial2.print(',');
+  Serial2.print(fault_text); Serial2.print(',');
+  
+  Serial2.print(accelX); Serial2.print(',');
+  Serial2.print(accelY); Serial2.print(',');
+  Serial2.print(accelZ); Serial2.print(',');
+  Serial2.print(gyroX); Serial2.print(',');
+  Serial2.print(gyroY); Serial2.print(',');
+  Serial2.println(gyroZ);
+}
+
+// =========================
+// Setup
+// =========================
+void setupPins() {
+  pinMode(LEFT_RPWM_PIN, OUTPUT);
+  pinMode(LEFT_LPWM_PIN, OUTPUT);
+  pinMode(RIGHT_RPWM_PIN, OUTPUT);
+  pinMode(RIGHT_LPWM_PIN, OUTPUT);
+
+  pinMode(LEFT_ENC_A_PIN, INPUT_PULLUP);
+  pinMode(LEFT_ENC_B_PIN, INPUT_PULLUP);
+  pinMode(RIGHT_ENC_A_PIN, INPUT_PULLUP);
+  pinMode(RIGHT_ENC_B_PIN, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(LEFT_ENC_A_PIN), leftEncISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(RIGHT_ENC_A_PIN), rightEncISR, CHANGE);
+
+  g_servo_1.attach(SERVO_1_PIN);
+  g_servo_2_left.attach(SERVO_2_LEFT_PIN);
+  g_servo_2_right.attach(SERVO_2_RIGHT_PIN);
+  g_servo_3.attach(SERVO_3_PIN);
+  g_servo_4.attach(SERVO_4_PIN);
+  g_servo_5.attach(SERVO_5_PIN);
+
+  // Căn chỉnh servo về vị trí 90 độ lúc khởi động
+  g_servo_1.write(90);
+  setJoint2Angle(90); // Dùng hàm gộp
+  g_servo_3.write(90);
+  g_servo_4.write(90);
+  g_servo_5.write(90);
+
+  setMotorPWM(0, 0);
+}
+
+void setup() {
+  Serial.begin(115200); 
+  Serial2.begin(9600);  // HC-05
+
+  setupMPU();
+  setupPins();
+  cmd_buffer.reserve(128);
+
+  last_cmd_ms = millis();
+  last_control_us = micros();
+  last_telemetry_us = micros();
+}
+
+// =========================
+// Vòng lặp chính
+// =========================
+void loop() {
+  readCommands();
+  controlLoop();
+  sendTelemetry();
 }
