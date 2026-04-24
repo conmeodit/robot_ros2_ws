@@ -5,7 +5,8 @@
 
 set -e
 
-PROJECT_DIR="/home/linh-pham/robot_ros2_ws/firmware/arduino_mega_base"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/firmware/arduino_mega_base"
 BOARD="arduino:avr:mega"
 REQUIRED_CORE="arduino:avr"
 REQUIRED_LIBS=("Servo")
@@ -58,6 +59,12 @@ ensure_core_and_libs() {
 }
 
 echo "=== Arduino Mega Auto Upload ==="
+
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "❌ Không tìm thấy thư mục sketch: $PROJECT_DIR"
+    exit 1
+fi
+
 ensure_arduino_cli
 ensure_core_and_libs
 
@@ -77,7 +84,10 @@ echo ""
 
 # Compile trước
 echo "📦 Đang compile sketch..."
-arduino-cli compile --fqbn "$BOARD" "$PROJECT_DIR" > /dev/null 2>&1
+if ! arduino-cli compile --fqbn "$BOARD" "$PROJECT_DIR"; then
+    echo "❌ Compile thất bại. Xem lỗi ở trên để sửa."
+    exit 1
+fi
 echo "✅ Compile thành công"
 echo ""
 
