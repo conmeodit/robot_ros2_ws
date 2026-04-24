@@ -5,10 +5,10 @@
 // =========================
 // Cấu hình phần cứng Động cơ & Encoder
 // =========================
-static const uint8_t LEFT_RPWM_PIN = 5;
-static const uint8_t LEFT_LPWM_PIN = 6;
-static const uint8_t RIGHT_RPWM_PIN = 7;
-static const uint8_t RIGHT_LPWM_PIN = 8;
+static const uint8_t LEFT_RPWM_PIN = 6;  
+static const uint8_t LEFT_LPWM_PIN = 5;  
+static const uint8_t RIGHT_RPWM_PIN = 8; 
+static const uint8_t RIGHT_LPWM_PIN = 7; 
 
 static const uint8_t LEFT_ENC_A_PIN = 2;
 static const uint8_t LEFT_ENC_B_PIN = 3;
@@ -34,8 +34,9 @@ int16_t accelX = 0, accelY = 0, accelZ = 0, gyroX = 0, gyroY = 0, gyroZ = 0;
 // =========================
 // System Parameters
 // =========================
-static const float TELEMETRY_DT_SEC = 0.05f; // 20 Hz gửi dữ liệu
-static const uint32_t CMD_TIMEOUT_MS = 500;  // Quá 0.5s không có lệnh -> tự dừng
+// ĐÃ SỬA: Tăng thời gian delay gửi dữ liệu lên 0.5 giây (2 lần/giây) để dễ nhìn
+static const float TELEMETRY_DT_SEC = 0.5f; 
+static const uint32_t CMD_TIMEOUT_MS = 500;  
 
 volatile int32_t g_left_ticks = 0;
 volatile int32_t g_right_ticks = 0;
@@ -163,8 +164,8 @@ void parseCommand(const String &line) {
 
     if (c == 'F') { target_left_pwm = speed_pwm;  target_right_pwm = speed_pwm; }
     else if (c == 'B') { target_left_pwm = -speed_pwm; target_right_pwm = -speed_pwm; }
-    else if (c == 'L') { target_left_pwm = -turn_pwm;  target_right_pwm = turn_pwm; } // Trái lùi, phải tiến
-    else if (c == 'R') { target_left_pwm = turn_pwm;   target_right_pwm = -turn_pwm; } // Trái tiến, phải lùi
+    else if (c == 'L') { target_left_pwm = -turn_pwm;  target_right_pwm = turn_pwm; } 
+    else if (c == 'R') { target_left_pwm = turn_pwm;   target_right_pwm = -turn_pwm; } 
     else if (c == 'S') { target_left_pwm = 0;          target_right_pwm = 0; }
 
     if (c == 'F' || c == 'B' || c == 'L' || c == 'R' || c == 'S') {
@@ -181,10 +182,9 @@ void parseCommand(const String &line) {
   if (cmd == "CMD_VEL") {
     int p2 = line.indexOf(',', p1 + 1);
     if (p1 < 0 || p2 < 0) return;
-    float v = line.substring(p1 + 1, p2).toFloat(); // Tiến/Lùi
-    float w = line.substring(p2 + 1).toFloat();     // Xoay
+    float v = line.substring(p1 + 1, p2).toFloat(); 
+    float w = line.substring(p2 + 1).toFloat();     
     
-    // Quy đổi giả lập lệnh v, w sang PWM (-255 -> 255)
     target_left_pwm = constrain((v - w) * 200, -255, 255);
     target_right_pwm = constrain((v + w) * 200, -255, 255);
     
@@ -243,7 +243,7 @@ void checkSafetyLoop() {
   if (millis() - last_cmd_ms > CMD_TIMEOUT_MS) {
     target_left_pwm = 0;
     target_right_pwm = 0;
-    setMotorPWM(0, 0); // Dừng xe nếu mất tín hiệu quá 0.5 giây
+    setMotorPWM(0, 0); 
   }
 }
 
@@ -262,23 +262,28 @@ void sendTelemetry() {
 
   readMPU(); 
 
-  Serial2.print("STAT,");
-  Serial2.print(mode); Serial2.print(',');
-  Serial2.print(estop ? 1 : 0); Serial2.print(',');
-  Serial2.print(motor_enabled ? 1 : 0); Serial2.print(',');
-  Serial2.print(left_ticks); Serial2.print(',');
-  Serial2.print(right_ticks); Serial2.print(',');
-  Serial2.print(-1.0f, 2); Serial2.print(','); 
-  Serial2.print(-1.0f, 2); Serial2.print(','); 
-  Serial2.print(fault ? 1 : 0); Serial2.print(',');
-  Serial2.print(fault_text); Serial2.print(',');
+  // ĐÃ SỬA: Định dạng lại giao diện hiển thị trên điện thoại cho trực quan
+  Serial2.println("\n=== THONG SO XE ===");
   
-  Serial2.print(accelX); Serial2.print(',');
-  Serial2.print(accelY); Serial2.print(',');
-  Serial2.print(accelZ); Serial2.print(',');
-  Serial2.print(gyroX); Serial2.print(',');
-  Serial2.print(gyroY); Serial2.print(',');
-  Serial2.println(gyroZ);
+  Serial2.print("Trang thai : ");
+  if (estop) Serial2.println("DUNG KHAN CAP");
+  else if (!motor_enabled) Serial2.println("TAT DONG CO");
+  else Serial2.println("HOAT DONG");
+
+  Serial2.print("Encoder    : Trai = "); 
+  Serial2.print(left_ticks); 
+  Serial2.print(" | Phai = "); 
+  Serial2.println(right_ticks);
+  
+  Serial2.print("Gia toc    : X="); Serial2.print(accelX);
+  Serial2.print(" | Y="); Serial2.print(accelY);
+  Serial2.print(" | Z="); Serial2.println(accelZ);
+  
+  Serial2.print("Goc ngieng : X="); Serial2.print(gyroX);
+  Serial2.print(" | Y="); Serial2.print(gyroY);
+  Serial2.print(" | Z="); Serial2.println(gyroZ);
+  
+  Serial2.println("===================");
 }
 
 // =========================
@@ -324,6 +329,6 @@ void setup() {
 
 void loop() {
   readCommands();
-  checkSafetyLoop(); // Chỉ dùng để ngắt xe khi mất sóng điện thoại, không có PID
+  checkSafetyLoop(); 
   sendTelemetry();
 }
