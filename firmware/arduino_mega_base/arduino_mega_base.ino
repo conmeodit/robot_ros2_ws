@@ -12,8 +12,8 @@ static const uint8_t RIGHT_LPWM_PIN = 7;
 
 static const uint8_t LEFT_ENC_A_PIN = 2;
 static const uint8_t LEFT_ENC_B_PIN = 3;
-static const uint8_t RIGHT_ENC_A_PIN = 18;
-static const uint8_t RIGHT_ENC_B_PIN = 19;
+static const uint8_t RIGHT_ENC_A_PIN = 19;
+static const uint8_t RIGHT_ENC_B_PIN = 18;
 
 // =========================
 // Cấu hình Arm Servos
