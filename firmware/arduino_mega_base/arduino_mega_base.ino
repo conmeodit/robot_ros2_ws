@@ -26,22 +26,24 @@ static const uint8_t SERVO_4_PIN = 26;
 static const uint8_t SERVO_5_PIN = 27;
 
 // =========================
-// MPU6500 Configuration
+// MPU9250 & La Bàn AK8963 Configuration
 // =========================
-const int MPU_ADDR = 0x68; 
-int16_t accelX = 0, accelY = 0, accelZ = 0, gyroX = 0, gyroY = 0, gyroZ = 0;
+const int MPU_ADDR = 0x68; // Địa chỉ chip Gia tốc + Gyro
+const int MAG_ADDR = 0x0C; // Địa chỉ chip La bàn AK8963
+
+int16_t accelX = 0, accelY = 0, accelZ = 0;
+int16_t gyroX = 0,  gyroY = 0,  gyroZ = 0;
+int16_t magX = 0,   magY = 0,   magZ = 0; // Biến lưu dữ liệu la bàn
 
 // =========================
 // System Parameters
 // =========================
-// ĐÃ SỬA: Tăng thời gian delay gửi dữ liệu lên 0.5 giây (2 lần/giây) để dễ nhìn
-static const float TELEMETRY_DT_SEC = 0.5f; 
+static const float TELEMETRY_DT_SEC = 0.5f; // 2 lần/giây
 static const uint32_t CMD_TIMEOUT_MS = 500;  
 
 volatile int32_t g_left_ticks = 0;
 volatile int32_t g_right_ticks = 0;
 
-// Biến lưu công suất PWM (-255 đến 255)
 int16_t target_left_pwm = 0;
 int16_t target_right_pwm = 0;
 
@@ -49,28 +51,20 @@ bool estop = false;
 bool motor_enabled = true;
 bool fault = false;
 String fault_text = "OK";
-String mode = "MANUAL"; // Chạy thuần
+String mode = "MANUAL"; 
 
 uint32_t last_cmd_ms = 0;
 uint32_t last_telemetry_us = 0;
 
 String cmd_buffer;
-Servo g_servo_1;
-Servo g_servo_2_left, g_servo_2_right;
-Servo g_servo_3, g_servo_4, g_servo_5;
+Servo g_servo_1, g_servo_2_left, g_servo_2_right, g_servo_3, g_servo_4, g_servo_5;
 
-// =========================
-// Hàm điều khiển khớp Servo đôi 
-// =========================
 void setJoint2Angle(int deg) {
   deg = constrain(deg, 0, 180); 
   g_servo_2_left.write(deg);
   g_servo_2_right.write(180 - deg);   
 }
 
-// =========================
-// Đọc Encoder (Chỉ để hiển thị, không dùng để điều khiển nữa)
-// =========================
 void leftEncISR() {
   bool a = digitalRead(LEFT_ENC_A_PIN);
   bool b = digitalRead(LEFT_ENC_B_PIN);
@@ -84,36 +78,77 @@ void rightEncISR() {
 }
 
 // =========================
-// MPU6500 Functions
+// MPU9250 & AK8963 Setup & Read
 // =========================
 void setupMPU() {
   Wire.begin();
   Wire.setWireTimeout(3000, true); 
+
+  // 1. Đánh thức MPU6500
   Wire.beginTransmission(MPU_ADDR);
-  Wire.write(0x6B); 
-  Wire.write(0);    
+  Wire.write(0x6B); // Thanh ghi Nguồn
+  Wire.write(0x00); // Xóa chế độ Sleep
   Wire.endTransmission(true);
+  delay(50);
+
+  // 2. BẬT CHẾ ĐỘ I2C BYPASS (Mở cửa cho Arduino đọc la bàn)
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x37); // Thanh ghi INT_PIN_CFG
+  Wire.write(0x02); // Bật bit số 1 (BYPASS_EN)
+  Wire.endTransmission(true);
+  delay(50);
+
+  // 3. KHỞI TẠO LA BÀN AK8963
+  Wire.beginTransmission(MAG_ADDR);
+  Wire.write(0x0A); // Thanh ghi điều khiển CNTL1
+  Wire.write(0x16); // Chế độ: Đo liên tục (100Hz), độ phân giải 16-bit
+  Wire.endTransmission(true);
+  delay(50);
 }
 
 void readMPU() {
+  // --- 1. ĐỌC GIA TỐC VÀ GÓC NGHIÊNG ---
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x3B); 
-  if (Wire.endTransmission(false) != 0) return; 
-  
-  Wire.requestFrom(MPU_ADDR, 14, true); 
-  if (Wire.available() == 14) {
-    accelX = Wire.read() << 8 | Wire.read();
-    accelY = Wire.read() << 8 | Wire.read();
-    accelZ = Wire.read() << 8 | Wire.read();
-    Wire.read(); Wire.read(); 
-    gyroX = Wire.read() << 8 | Wire.read();
-    gyroY = Wire.read() << 8 | Wire.read();
-    gyroZ = Wire.read() << 8 | Wire.read();
+  if (Wire.endTransmission(false) == 0) {
+    Wire.requestFrom(MPU_ADDR, 14, true); 
+    if (Wire.available() == 14) {
+      accelX = Wire.read() << 8 | Wire.read();
+      accelY = Wire.read() << 8 | Wire.read();
+      accelZ = Wire.read() << 8 | Wire.read();
+      Wire.read(); Wire.read(); // Bỏ qua nhiệt độ
+      gyroX = Wire.read() << 8 | Wire.read();
+      gyroY = Wire.read() << 8 | Wire.read();
+      gyroZ = Wire.read() << 8 | Wire.read();
+    }
+  }
+
+  // --- 2. ĐỌC LA BÀN TỪ TRƯỜNG AK8963 ---
+  Wire.beginTransmission(MAG_ADDR);
+  Wire.write(0x03); // Thanh ghi bắt đầu của La bàn (HXL)
+  if (Wire.endTransmission(false) == 0) {
+    // Yêu cầu đọc 7 byte (6 byte dữ liệu + 1 byte trạng thái cuối cùng)
+    Wire.requestFrom(MAG_ADDR, 7, true); 
+    if (Wire.available() == 7) {
+      // AK8963 gửi byte THẤP (Low) trước, byte CAO (High) sau
+      uint8_t hxl = Wire.read();
+      uint8_t hxh = Wire.read();
+      uint8_t hyl = Wire.read();
+      uint8_t hyh = Wire.read();
+      uint8_t hzl = Wire.read();
+      uint8_t hzh = Wire.read();
+      uint8_t st2 = Wire.read(); // Bắt buộc phải đọc byte ST2 để chốt dữ liệu
+
+      // Ghép 2 byte lại thành số nguyên 16-bit có dấu
+      magX = (int16_t)(hxh << 8 | hxl);
+      magY = (int16_t)(hyh << 8 | hyl);
+      magZ = (int16_t)(hzh << 8 | hzl);
+    }
   }
 }
 
 // =========================
-// Motor Control Functions (Thuần PWM)
+// Motor Control Functions 
 // =========================
 void setMotorPWM(int16_t left_pwm, int16_t right_pwm) {
   left_pwm = constrain(left_pwm, -255, 255);
@@ -123,7 +158,6 @@ void setMotorPWM(int16_t left_pwm, int16_t right_pwm) {
     left_pwm = 0; right_pwm = 0;
   }
 
-  // Bơm điện bánh trái
   if (left_pwm >= 0) {
     analogWrite(LEFT_RPWM_PIN, left_pwm);
     analogWrite(LEFT_LPWM_PIN, 0);
@@ -132,7 +166,6 @@ void setMotorPWM(int16_t left_pwm, int16_t right_pwm) {
     analogWrite(LEFT_LPWM_PIN, -left_pwm);
   }
 
-  // Bơm điện bánh phải
   if (right_pwm >= 0) {
     analogWrite(RIGHT_RPWM_PIN, right_pwm);
     analogWrite(RIGHT_LPWM_PIN, 0);
@@ -154,13 +187,10 @@ void stopMotors() {
 void parseCommand(const String &line) {
   if (line.length() == 0) return;
 
-  // --- 1. CHẾ ĐỘ ĐIỀU KHIỂN BẰNG APP (Ký tự F, B, L, R, S) ---
   if (line.length() == 1) {
     char c = line[0];
-    
-    // ĐIỀU CHỈNH CÔNG SUẤT (TỐC ĐỘ) TẠI ĐÂY (Max 255, Min 0)
-    int16_t speed_pwm = 150; // Công suất chạy thẳng
-    int16_t turn_pwm  = 120; // Công suất xoay tại chỗ
+    int16_t speed_pwm = 150; 
+    int16_t turn_pwm  = 120; 
 
     if (c == 'F') { target_left_pwm = speed_pwm;  target_right_pwm = speed_pwm; }
     else if (c == 'B') { target_left_pwm = -speed_pwm; target_right_pwm = -speed_pwm; }
@@ -175,7 +205,6 @@ void parseCommand(const String &line) {
     }
   }
 
-  // --- 2. CHẾ ĐỘ NHẬN CHUỖI LỆNH ĐẦY ĐỦ ---
   int p1 = line.indexOf(',');
   String cmd = (p1 < 0) ? line : line.substring(0, p1);
 
@@ -236,9 +265,6 @@ void readCommands() {
   }
 }
 
-// =========================
-// Giám sát an toàn (Mất sóng tự dừng)
-// =========================
 void checkSafetyLoop() {
   if (millis() - last_cmd_ms > CMD_TIMEOUT_MS) {
     target_left_pwm = 0;
@@ -262,18 +288,14 @@ void sendTelemetry() {
 
   readMPU(); 
 
-  // ĐÃ SỬA: Định dạng lại giao diện hiển thị trên điện thoại cho trực quan
   Serial2.println("\n=== THONG SO XE ===");
-  
   Serial2.print("Trang thai : ");
   if (estop) Serial2.println("DUNG KHAN CAP");
   else if (!motor_enabled) Serial2.println("TAT DONG CO");
   else Serial2.println("HOAT DONG");
 
-  Serial2.print("Encoder    : Trai = "); 
-  Serial2.print(left_ticks); 
-  Serial2.print(" | Phai = "); 
-  Serial2.println(right_ticks);
+  Serial2.print("Encoder    : Trai = "); Serial2.print(left_ticks); 
+  Serial2.print(" | Phai = "); Serial2.println(right_ticks);
   
   Serial2.print("Gia toc    : X="); Serial2.print(accelX);
   Serial2.print(" | Y="); Serial2.print(accelY);
@@ -282,6 +304,11 @@ void sendTelemetry() {
   Serial2.print("Goc ngieng : X="); Serial2.print(gyroX);
   Serial2.print(" | Y="); Serial2.print(gyroY);
   Serial2.print(" | Z="); Serial2.println(gyroZ);
+
+  // ĐÃ THÊM: In dữ liệu La Bàn ra màn hình
+  Serial2.print("La ban     : X="); Serial2.print(magX);
+  Serial2.print(" | Y="); Serial2.print(magY);
+  Serial2.print(" | Z="); Serial2.println(magZ);
   
   Serial2.println("===================");
 }
