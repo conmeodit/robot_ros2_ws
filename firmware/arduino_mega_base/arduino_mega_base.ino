@@ -2,7 +2,7 @@
 
 void setup() {
   Wire.begin();
-  Serial.begin(115200);
+  Serial.begin(9600);
   while (!Serial); // Đợi Serial Monitor mở
   
   Serial.println("\n--- Bắt đầu quét I2C ---");
