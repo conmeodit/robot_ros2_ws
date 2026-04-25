@@ -64,14 +64,14 @@
 
   <link name="base_link">
     <visual>
-      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 0"/>
+      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 3.14159"/>
       <geometry>
         <box size="${base_length_cm * cm} ${base_width_cm * cm} ${base_height_cm * cm}"/>
       </geometry>
       <material name="body_blue"/>
     </visual>
     <collision>
-      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 0"/>
+      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 3.14159"/>
       <geometry>
         <box size="${base_length_cm * cm} ${base_width_cm * cm} ${base_height_cm * cm}"/>
       </geometry>
@@ -208,7 +208,7 @@
   <joint name="camera_pillar_to_arm" type="fixed">
     <parent link="camera_pillar_link"/>
     <child link="camera_arm_link"/>
-    <origin xyz="0 0 ${camera_pillar_height_cm * cm}" rpy="0 0 -1.5707963267948966"/>
+    <origin xyz="0 0 ${camera_pillar_height_cm * cm}" rpy="0 0 0"/>
   </joint>
 
   <link name="camera_link">
