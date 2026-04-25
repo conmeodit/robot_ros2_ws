@@ -208,7 +208,7 @@
   <joint name="camera_pillar_to_arm" type="fixed">
     <parent link="camera_pillar_link"/>
     <child link="camera_arm_link"/>
-    <origin xyz="0 0 ${camera_pillar_height_cm * cm}" rpy="0 0 0"/>
+    <origin xyz="0 0 ${camera_pillar_height_cm * cm}" rpy="0 0 -1.5707963267948966"/>
   </joint>
 
   <link name="camera_link">
