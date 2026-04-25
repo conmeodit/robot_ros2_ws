@@ -26,7 +26,7 @@ def _detect_lidar_port():
 def launch_setup(context, *args, **kwargs):
     requested_port = LaunchConfiguration('serial_port').perform(context)
     serial_port = _detect_lidar_port() if requested_port == 'auto' else requested_port
-    serial_baudrate = LaunchConfiguration('serial_baudrate').perform(context)
+    serial_baudrate = int(LaunchConfiguration('serial_baudrate').perform(context))
 
     bringup_dir = get_package_share_directory('robot_bringup')
     desc_dir = get_package_share_directory('robot_description')
