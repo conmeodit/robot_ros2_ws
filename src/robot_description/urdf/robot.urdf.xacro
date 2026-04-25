@@ -71,7 +71,7 @@
       <material name="body_blue"/>
     </visual>
     <collision>
-      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 3.14159"/>
+      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 0"/>
       <geometry>
         <box size="${base_length_cm * cm} ${base_width_cm * cm} ${base_height_cm * cm}"/>
       </geometry>
