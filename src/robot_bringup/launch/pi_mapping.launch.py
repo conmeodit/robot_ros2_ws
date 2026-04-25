@@ -4,6 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.actions import LogInfo
 from launch.actions import OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -11,21 +12,88 @@ from launch_ros.actions import Node
 import xacro
 
 
+def _port_score(port_path):
+    path = port_path.lower()
+    score = 0
+
+    if '/dev/serial/by-id/' in path:
+        score += 100
+    if '/dev/serial/by-path/' in path:
+        score += 80
+    if '/dev/ttyusb' in path:
+        score += 20
+    if '/dev/ttyacm' in path:
+        score += 10
+
+    lidar_hints = (
+        'lidar',
+        'rplidar',
+        'sllidar',
+        'slamtec',
+        'cp210',
+        'silicon_labs',
+    )
+    for hint in lidar_hints:
+        if hint in path:
+            score += 30
+
+    non_lidar_hints = (
+        'arduino',
+        'mega',
+        'wch',
+        'ch340',
+        'usb-serial',
+    )
+    for hint in non_lidar_hints:
+        if hint in path:
+            score -= 60
+
+    return score
+
+
 def _detect_lidar_port():
-    preferred_paths = sorted(glob.glob('/dev/serial/by-id/*'))
-    if preferred_paths:
-        return preferred_paths[0]
+    candidates = []
+    candidates.extend(sorted(glob.glob('/dev/serial/by-id/*')))
+    candidates.extend(sorted(glob.glob('/dev/serial/by-path/*')))
+    candidates.extend(sorted(glob.glob('/dev/ttyUSB*')))
+    candidates.extend(sorted(glob.glob('/dev/ttyACM*')))
 
-    tty_paths = sorted(glob.glob('/dev/ttyUSB*')) + sorted(glob.glob('/dev/ttyACM*'))
-    if tty_paths:
-        return tty_paths[0]
+    ordered_candidates = []
+    seen = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            ordered_candidates.append(candidate)
+            seen.add(candidate)
 
-    return '/dev/ttyUSB0'
+    if not ordered_candidates:
+        return '/dev/ttyUSB0', []
+
+    ranked_candidates = sorted(
+        ordered_candidates,
+        key=lambda port: (_port_score(port), port),
+        reverse=True,
+    )
+    return ranked_candidates[0], ordered_candidates
 
 
 def launch_setup(context, *args, **kwargs):
     requested_port = LaunchConfiguration('serial_port').perform(context)
-    serial_port = _detect_lidar_port() if requested_port == 'auto' else requested_port
+    startup_logs = []
+    if requested_port == 'auto':
+        serial_port, candidates = _detect_lidar_port()
+        if candidates:
+            startup_logs.append(
+                LogInfo(msg='[pi_mapping] serial_port=auto selected: {} (candidates: {})'.format(
+                    serial_port,
+                    ', '.join(candidates)
+                ))
+            )
+        else:
+            startup_logs.append(
+                LogInfo(msg='[pi_mapping] serial_port=auto found no devices, fallback to /dev/ttyUSB0')
+            )
+    else:
+        serial_port = requested_port
     serial_baudrate = int(LaunchConfiguration('serial_baudrate').perform(context))
 
     bringup_dir = get_package_share_directory('robot_bringup')
@@ -70,6 +138,7 @@ def launch_setup(context, *args, **kwargs):
     )
 
     return [
+        *startup_logs,
         robot_state_publisher,
         static_tf_odom,
         sllidar_node,
