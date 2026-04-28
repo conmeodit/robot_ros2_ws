@@ -162,9 +162,9 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
-    # ── 6. SLAM Session Manager (from vacuum_driver) ─────────────────────
+    # ── 6. SLAM Session Manager ───────────────────────────────────────────
     slam_session_manager = Node(
-        package='vacuum_driver',
+        package='robot_mission',
         executable='slam_session_manager_node',
         name='slam_session_manager_node',
         output='screen',
@@ -175,9 +175,9 @@ def launch_setup(context, *args, **kwargs):
         }],
     )
 
-    # ── 7. Autonomous Cleaning Node (from vacuum_driver) ──────────────────
+    # ── 7. Autonomous Cleaning Node ───────────────────────────────────────
     autonomy_node = Node(
-        package='vacuum_driver',
+        package='robot_mission',
         executable='autonomous_cleaning_node',
         name='autonomous_cleaning_node',
         output='screen',

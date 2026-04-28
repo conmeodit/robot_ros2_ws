@@ -16,7 +16,19 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
-from robot_serial_bridge.packet_parser import parse_telemetry
+
+def _parse_telemetry(line: str):
+    """Parse $TELE,left,right,ax,ay,az,gx,gy,gz from Arduino."""
+    line = line.strip()
+    if not line.startswith('$TELE,'):
+        return None
+    parts = line[6:].split(',')
+    if len(parts) != 8:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])  # left_ticks, right_ticks
+    except ValueError:
+        return None
 
 
 def _normalize_angle(angle: float) -> float:
@@ -78,30 +90,31 @@ class WheelOdomNode(Node):
         )
 
     def _status_cb(self, msg: String):
-        frame = parse_telemetry(msg.data)
-        if frame is None:
+        result = _parse_telemetry(msg.data)
+        if result is None:
             return
 
+        left_ticks, right_ticks = result
         now_ns = self.get_clock().now().nanoseconds
 
         # First reading — just store and return
         if self.prev_left_ticks is None:
-            self.prev_left_ticks = frame.left_ticks
-            self.prev_right_ticks = frame.right_ticks
+            self.prev_left_ticks = left_ticks
+            self.prev_right_ticks = right_ticks
             self.prev_time_ns = now_ns
             return
 
         # Delta ticks
-        d_left = frame.left_ticks - self.prev_left_ticks
-        d_right = frame.right_ticks - self.prev_right_ticks
+        d_left = left_ticks - self.prev_left_ticks
+        d_right = right_ticks - self.prev_right_ticks
 
         # Reject encoder jumps (> 500 ticks in one step ≈ implausible)
         if abs(d_left) > 500 or abs(d_right) > 500:
             self.get_logger().warn(
                 f'Encoder jump rejected: dL={d_left}, dR={d_right}'
             )
-            self.prev_left_ticks = frame.left_ticks
-            self.prev_right_ticks = frame.right_ticks
+            self.prev_left_ticks = left_ticks
+            self.prev_right_ticks = right_ticks
             self.prev_time_ns = now_ns
             return
 
@@ -128,8 +141,8 @@ class WheelOdomNode(Node):
         angular_vel = delta_yaw / max(dt, 1e-6)
 
         # Update previous state
-        self.prev_left_ticks = frame.left_ticks
-        self.prev_right_ticks = frame.right_ticks
+        self.prev_left_ticks = left_ticks
+        self.prev_right_ticks = right_ticks
         self.prev_time_ns = now_ns
 
         # Build and publish odometry message

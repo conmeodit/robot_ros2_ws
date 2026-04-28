@@ -28,7 +28,7 @@
   <exec_depend>rplidar_ros</exec_depend>
   <exec_depend>robot_serial_bridge</exec_depend>
   <exec_depend>robot_localization_pkg</exec_depend>
-  <exec_depend>vacuum_driver</exec_depend>
+  <exec_depend>robot_mission</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
