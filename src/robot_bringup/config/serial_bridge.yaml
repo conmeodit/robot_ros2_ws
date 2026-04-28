@@ -9,3 +9,4 @@ mega_bridge_node:
     cmd_vel_timeout_sec: 0.5
     read_enabled: true
     imu_frame_id: base_link
+    serial_startup_delay_sec: 2.0

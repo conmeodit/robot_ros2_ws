@@ -11,6 +11,7 @@ import glob
 import os
 import re
 import threading
+import time
 from typing import Optional
 
 import rclpy
@@ -90,6 +91,7 @@ class MegaBridgeNode(Node):
         self.declare_parameter('cmd_vel_timeout_sec', 0.5)
         self.declare_parameter('read_enabled', True)
         self.declare_parameter('imu_frame_id', 'base_link')
+        self.declare_parameter('serial_startup_delay_sec', 2.0)
 
         port_param = str(self.get_parameter('port').value)
         self.baudrate = int(self.get_parameter('baudrate').value)
@@ -100,6 +102,9 @@ class MegaBridgeNode(Node):
         self.cmd_vel_timeout_sec = max(0.1, float(self.get_parameter('cmd_vel_timeout_sec').value))
         self.read_enabled = bool(self.get_parameter('read_enabled').value)
         self.imu_frame_id = str(self.get_parameter('imu_frame_id').value)
+        self.serial_startup_delay_sec = max(
+            0.0, float(self.get_parameter('serial_startup_delay_sec').value)
+        )
 
         # Resolve port
         if port_param == 'auto':
@@ -121,6 +126,8 @@ class MegaBridgeNode(Node):
         self._cmd_angular = 0.0
         self._last_cmd_ns = self.get_clock().now().nanoseconds
         self._lock = threading.Lock()
+        self._rx_buffer = bytearray()
+        self._telemetry_count = 0
 
         # Publishers
         self.status_pub = self.create_publisher(String, self.status_topic, 10)
@@ -150,10 +157,17 @@ class MegaBridgeNode(Node):
         try:
             self.ser = serial.Serial(
                 self.port, self.baudrate,
-                timeout=0.01,
+                timeout=0.0,
                 write_timeout=0.1,
             )
             self.get_logger().info(f'Serial port opened: {self.port}')
+            if self.serial_startup_delay_sec > 0.0:
+                self.get_logger().info(
+                    f'Waiting {self.serial_startup_delay_sec:.1f}s for Arduino reset...'
+                )
+                time.sleep(self.serial_startup_delay_sec)
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
         except Exception as e:
             self.get_logger().error(f'Failed to open {self.port}: {e}')
             self.ser = None
@@ -186,26 +200,42 @@ class MegaBridgeNode(Node):
             return
 
         try:
-            while self.ser.in_waiting > 0:
-                raw_line = self.ser.readline()
-                if not raw_line:
-                    break
+            waiting = self.ser.in_waiting
+            if waiting <= 0:
+                return
+
+            chunk = self.ser.read(waiting)
+            if not chunk:
+                return
+
+            self._rx_buffer.extend(chunk)
+            if len(self._rx_buffer) > 4096:
+                self.get_logger().warn('Serial RX buffer overflow; dropping stale bytes')
+                del self._rx_buffer[:-512]
+
+            while b'\n' in self._rx_buffer:
+                raw_line, _, rest = self._rx_buffer.partition(b'\n')
+                self._rx_buffer = bytearray(rest)
                 line = raw_line.decode('ascii', errors='replace').strip()
-                if not line:
-                    continue
-
-                # Publish raw status
-                status_msg = String()
-                status_msg.data = line
-                self.status_pub.publish(status_msg)
-
-                # Parse telemetry
-                frame = parse_telemetry(line)
-                if frame is not None:
-                    self._publish_imu(frame)
+                if line:
+                    self._handle_serial_line(line)
 
         except Exception as e:
             self.get_logger().warn(f'Serial read error: {e}')
+
+    def _handle_serial_line(self, line: str):
+        status_msg = String()
+        status_msg.data = line
+        self.status_pub.publish(status_msg)
+
+        frame = parse_telemetry(line)
+        if frame is None:
+            return
+
+        self._telemetry_count += 1
+        if self._telemetry_count == 1:
+            self.get_logger().info(f'First telemetry frame received: {line}')
+        self._publish_imu(frame)
 
     def _publish_imu(self, frame: TelemetryFrame):
         imu_msg = Imu()
