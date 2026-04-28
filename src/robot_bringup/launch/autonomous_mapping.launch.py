@@ -192,9 +192,9 @@ def launch_setup(context, *args, **kwargs):
             'front_stop_distance_m': 0.34,
             'emergency_stop_distance_m': 0.22,
             'side_clearance_m': 0.23,
-            'max_linear_speed': 0.12,
-            'min_linear_speed': 0.035,
-            'max_angular_speed': 0.80,
+            'max_linear_speed': 0.07,
+            'min_linear_speed': 0.02,
+            'max_angular_speed': 0.45,
             'frontier_min_cluster_size': 6,
             'frontier_relaxed_min_cluster_size': 3,
             'frontier_min_distance_m': 0.30,
@@ -207,6 +207,7 @@ def launch_setup(context, *args, **kwargs):
             'coverage_switch_distance_weight': 0.12,
             'stuck_timeout_sec': 5.0,
             'stuck_min_progress_m': 0.08,
+            'backup_speed': 0.03,
         }],
     )
 
