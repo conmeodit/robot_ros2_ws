@@ -35,7 +35,8 @@ int16_t gyroX = 0,  gyroY = 0,  gyroZ = 0;
 // =========================
 // System Parameters
 // =========================
-static const float TELEMETRY_DT_SEC = 0.5f; 
+// Telemetry at 20 Hz for ROS2 odometry (was 0.5s = 2 Hz)
+static const float TELEMETRY_DT_SEC = 0.05f; 
 static const uint32_t CMD_TIMEOUT_MS = 500;  
 
 volatile int32_t g_left_ticks = 0;
@@ -51,7 +52,8 @@ String mode = "MANUAL";
 uint32_t last_cmd_ms = 0;
 uint32_t last_telemetry_us = 0;
 
-String cmd_buffer;
+String cmd_buffer_usb;   // Buffer cho Serial (USB)
+String cmd_buffer_bt;    // Buffer cho Serial2 (Bluetooth HC-05)
 Servo g_servo_1, g_servo_2_left, g_servo_2_right, g_servo_3, g_servo_4, g_servo_5;
 
 // =========================
@@ -141,7 +143,7 @@ void stopMotors() {
 }
 
 // =========================
-// Bluetooth HC-05
+// Parse commands (shared between USB and Bluetooth)
 // =========================
 void parseCommand(const String &line) {
   if (line.length() == 0) return;
@@ -210,16 +212,19 @@ void parseCommand(const String &line) {
   }
 }
 
-void readCommands() {
-  while (Serial2.available() > 0) {
-    char c = (char)Serial2.read();
+// =========================
+// Read commands from a given serial port into its buffer
+// =========================
+void readCommandsFrom(Stream &port, String &buffer) {
+  while (port.available() > 0) {
+    char c = (char)port.read();
     if (c == '\n' || c == '\r') {
-      if (cmd_buffer.length() > 0) {
-        parseCommand(cmd_buffer);
-        cmd_buffer = "";
+      if (buffer.length() > 0) {
+        parseCommand(buffer);
+        buffer = "";
       }
     } else {
-      if (cmd_buffer.length() < 120) cmd_buffer += c;
+      if (buffer.length() < 120) buffer += c;
     }
   }
 }
@@ -233,7 +238,9 @@ void checkSafetyLoop() {
 }
 
 // =========================
-// Telemetry (Gửi dữ liệu về điện thoại)
+// Telemetry — machine-readable CSV format for ROS2
+// Format: $TELE,left_ticks,right_ticks,accelX,accelY,accelZ,gyroX,gyroY,gyroZ
+// Gửi qua cả Serial (USB) cho ROS2 và Serial2 (Bluetooth) cho monitor
 // =========================
 void sendTelemetry() {
   uint32_t now_us = micros();
@@ -247,6 +254,18 @@ void sendTelemetry() {
 
   readMPU(); 
 
+  // Machine-readable CSV cho ROS2 (Serial USB)
+  Serial.print("$TELE,");
+  Serial.print(left_ticks);   Serial.print(',');
+  Serial.print(right_ticks);  Serial.print(',');
+  Serial.print(accelX);       Serial.print(',');
+  Serial.print(accelY);       Serial.print(',');
+  Serial.print(accelZ);       Serial.print(',');
+  Serial.print(gyroX);        Serial.print(',');
+  Serial.print(gyroY);        Serial.print(',');
+  Serial.println(gyroZ);
+
+  // Human-readable cho Bluetooth monitor (Serial2)
   Serial2.println("\n=== THONG SO XE ===");
   Serial2.print("Encoder    : T="); Serial2.print(left_ticks); 
   Serial2.print(" | P="); Serial2.println(right_ticks);
@@ -292,19 +311,22 @@ void setupPins() {
 }
 
 void setup() {
-  Serial.begin(115200); 
-  Serial2.begin(9600);  
+  Serial.begin(115200);   // USB — ROS2 bridge
+  Serial2.begin(9600);    // Bluetooth HC-05 — điện thoại monitor
 
   setupMPU();
   setupPins();
-  cmd_buffer.reserve(128);
+  cmd_buffer_usb.reserve(128);
+  cmd_buffer_bt.reserve(128);
 
   last_cmd_ms = millis();
   last_telemetry_us = micros();
 }
 
 void loop() {
-  readCommands();
+  // Đọc commands từ cả USB (ROS2) và Bluetooth (điện thoại)
+  readCommandsFrom(Serial, cmd_buffer_usb);
+  readCommandsFrom(Serial2, cmd_buffer_bt);
   checkSafetyLoop(); 
   sendTelemetry();
 }

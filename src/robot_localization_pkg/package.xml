@@ -11,6 +11,11 @@
 	<buildtool_depend>ament_python</buildtool_depend>
 
 	<depend>rclpy</depend>
+	<depend>nav_msgs</depend>
+	<depend>geometry_msgs</depend>
+	<depend>std_msgs</depend>
+	<depend>tf2_ros</depend>
+	<depend>robot_serial_bridge</depend>
 
 	<test_depend>ament_lint_auto</test_depend>
 	<test_depend>ament_lint_common</test_depend>
@@ -19,4 +24,3 @@
 		<build_type>ament_python</build_type>
 	</export>
 </package>
-
