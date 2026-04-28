@@ -1,65 +1,32 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="pi5_amr">
-  <!-- ==============================
-       MẪU CHỈNH THEO CENTIMETER (cm)
-       Sửa các giá trị *_cm bên dưới.
-       ROS vẫn dùng mét (m), đã đổi tự động qua hệ số cm.
-       ============================== -->
   <xacro:property name="cm" value="0.01"/>
 
-  <!-- Kích thước thân robot (cm) -->
   <xacro:property name="base_length_cm" value="30.0"/>
   <xacro:property name="base_width_cm" value="40.0"/>
-  <xacro:property name="base_height_cm" value="1.6"/>
-  <xacro:property name="base_ground_clearance_cm" value="5.8"/>
+  <xacro:property name="base_height_cm" value="5.8"/>
+  <xacro:property name="base_ground_clearance_cm" value="0.0"/>
 
-  <!-- Tầng 2 (cm) -->
-  <xacro:property name="upper_deck_length_cm" value="15.0"/>
-  <xacro:property name="upper_deck_width_cm" value="40.0"/>
-  <xacro:property name="upper_deck_height_cm" value="1.6"/>
-  <xacro:property name="upper_deck_x_cm" value="-5.0"/>
-  <xacro:property name="upper_deck_y_cm" value="0.0"/>
-  <xacro:property name="lidar_ground_z_cm" value="19.5"/>
-
-  <xacro:property name="base_top_z_cm" value="${base_ground_clearance_cm + base_height_cm}"/>
-  <xacro:property name="upper_deck_top_z_cm" value="${lidar_ground_z_cm - (lidar_height_cm / 2.0)}"/>
-  <xacro:property name="upper_deck_bottom_z_cm" value="${upper_deck_top_z_cm - upper_deck_height_cm}"/>
-  <xacro:property name="standoff_radius_cm" value="0.4"/>
-  <xacro:property name="standoff_height_cm" value="${upper_deck_bottom_z_cm - base_top_z_cm}"/>
-  <xacro:property name="standoff_x_offset_cm" value="7.5"/>
-  <xacro:property name="standoff_y_offset_cm" value="17.5"/>
-
-  <!-- Lidar (cm), vị trí so với tâm base_link -->
-  <xacro:property name="lidar_radius_cm" value="3.5"/>
-  <xacro:property name="lidar_height_cm" value="4.0"/>
-  <xacro:property name="lidar_x_cm" value="-2.0"/>
+  <xacro:property name="lidar_radius_cm" value="6.0"/>
+  <xacro:property name="lidar_height_cm" value="5.0"/>
+  <xacro:property name="lidar_x_cm" value="-10.0"/>
   <xacro:property name="lidar_y_cm" value="0.0"/>
-  <xacro:property name="lidar_z_cm" value="${upper_deck_height_cm + (lidar_height_cm / 2.0)}"/>
+  <xacro:property name="lidar_z_cm" value="8.1"/>
 
-  <!-- Cụm camera (cm), vị trí so với tâm base_link -->
-  <xacro:property name="camera_pillar_height_cm" value="39.5"/>
-  <xacro:property name="camera_arm_length_cm" value="22.0"/>
-  <xacro:property name="camera_length_cm" value="5.0"/>
-  <xacro:property name="camera_radius_cm" value="1.5"/>
-  <xacro:property name="camera_x_cm" value="10.5"/>
-  <xacro:property name="camera_y_cm" value="7.0"/>
-  <xacro:property name="camera_z_cm" value="${base_top_z_cm}"/>
+  <xacro:property name="wheel_radius_cm" value="4.75"/>
+  <xacro:property name="wheel_thickness_cm" value="2.0"/>
+  <xacro:property name="wheel_x_offset_cm" value="10.0"/>
+  <xacro:property name="wheel_y_offset_cm" value="21.0"/>
+  <xacro:property name="wheel_z_cm" value="0.0"/>
 
-  <!-- Bánh xe (cm), 4 bánh ở 4 góc (85 mm => 4.25 cm bán kính) -->
-  <xacro:property name="wheel_radius_cm" value="4.25"/>
-  <xacro:property name="wheel_thickness_cm" value="3.0"/>
-  <xacro:property name="wheel_x_offset_cm" value="${base_length_cm / 2.0 - wheel_radius_cm}"/>
-  <xacro:property name="wheel_y_offset_cm" value="${base_width_cm / 2.0 + wheel_thickness_cm / 2.0}"/>
-  <xacro:property name="wheel_z_cm" value="${wheel_radius_cm}"/>
-
-  <material name="body_blue">
-    <color rgba="0.0 0.2 0.9 1.0"/>
+  <material name="orange_body">
+    <color rgba="1.0 0.55 0.18 1.0"/>
   </material>
-  <material name="sensor_black">
-    <color rgba="0.1 0.1 0.1 1.0"/>
+  <material name="black_rubber">
+    <color rgba="0.02 0.02 0.02 1.0"/>
   </material>
-  <material name="wheel_gray">
-    <color rgba="0.2 0.2 0.2 1.0"/>
+  <material name="lidar_dark">
+    <color rgba="0.05 0.16 0.24 1.0"/>
   </material>
 
   <link name="base_link">
@@ -68,226 +35,93 @@
       <geometry>
         <box size="${base_length_cm * cm} ${base_width_cm * cm} ${base_height_cm * cm}"/>
       </geometry>
-      <material name="body_blue"/>
+      <material name="orange_body"/>
     </visual>
     <collision>
-      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 3.14159"/>
+      <origin xyz="0 0 ${(base_ground_clearance_cm + (base_height_cm / 2.0)) * cm}" rpy="0 0 0"/>
       <geometry>
         <box size="${base_length_cm * cm} ${base_width_cm * cm} ${base_height_cm * cm}"/>
       </geometry>
     </collision>
   </link>
 
-  <link name="upper_deck_link">
-    <visual>
-      <origin xyz="0 0 ${upper_deck_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <box size="${upper_deck_length_cm * cm} ${upper_deck_width_cm * cm} ${upper_deck_height_cm * cm}"/>
-      </geometry>
-      <material name="body_blue"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 ${upper_deck_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <box size="${upper_deck_length_cm * cm} ${upper_deck_width_cm * cm} ${upper_deck_height_cm * cm}"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="base_to_upper_deck" type="fixed">
-    <parent link="base_link"/>
-    <child link="upper_deck_link"/>
-    <origin xyz="${upper_deck_x_cm * cm} ${upper_deck_y_cm * cm} ${upper_deck_bottom_z_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="standoff_fl_link">
-    <visual>
-      <origin xyz="0 0 ${standoff_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="${standoff_radius_cm * cm}" length="${standoff_height_cm * cm}"/>
-      </geometry>
-      <material name="wheel_gray"/>
-    </visual>
-  </link>
-
-  <joint name="base_to_standoff_fl" type="fixed">
-    <parent link="base_link"/>
-    <child link="standoff_fl_link"/>
-    <origin xyz="${(upper_deck_x_cm - standoff_x_offset_cm) * cm} ${(upper_deck_y_cm + standoff_y_offset_cm) * cm} ${base_top_z_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="standoff_fr_link">
-    <visual>
-      <origin xyz="0 0 ${standoff_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="${standoff_radius_cm * cm}" length="${standoff_height_cm * cm}"/>
-      </geometry>
-      <material name="wheel_gray"/>
-    </visual>
-  </link>
-
-  <joint name="base_to_standoff_fr" type="fixed">
-    <parent link="base_link"/>
-    <child link="standoff_fr_link"/>
-    <origin xyz="${(upper_deck_x_cm - standoff_x_offset_cm) * cm} ${(upper_deck_y_cm - standoff_y_offset_cm) * cm} ${base_top_z_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="standoff_rl_link">
-    <visual>
-      <origin xyz="0 0 ${standoff_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="${standoff_radius_cm * cm}" length="${standoff_height_cm * cm}"/>
-      </geometry>
-      <material name="wheel_gray"/>
-    </visual>
-  </link>
-
-  <joint name="base_to_standoff_rl" type="fixed">
-    <parent link="base_link"/>
-    <child link="standoff_rl_link"/>
-    <origin xyz="${(upper_deck_x_cm + standoff_x_offset_cm) * cm} ${(upper_deck_y_cm + standoff_y_offset_cm) * cm} ${base_top_z_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="standoff_rr_link">
-    <visual>
-      <origin xyz="0 0 ${standoff_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="${standoff_radius_cm * cm}" length="${standoff_height_cm * cm}"/>
-      </geometry>
-      <material name="wheel_gray"/>
-    </visual>
-  </link>
-
-  <joint name="base_to_standoff_rr" type="fixed">
-    <parent link="base_link"/>
-    <child link="standoff_rr_link"/>
-    <origin xyz="${(upper_deck_x_cm + standoff_x_offset_cm) * cm} ${(upper_deck_y_cm - standoff_y_offset_cm) * cm} ${base_top_z_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
   <link name="laser">
     <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="${lidar_radius_cm * cm}" length="${lidar_height_cm * cm}"/>
       </geometry>
-      <material name="sensor_black"/>
+      <material name="lidar_dark"/>
     </visual>
   </link>
 
   <joint name="base_to_laser" type="fixed">
-    <parent link="upper_deck_link"/>
+    <parent link="base_link"/>
     <child link="laser"/>
     <origin xyz="${lidar_x_cm * cm} ${lidar_y_cm * cm} ${lidar_z_cm * cm}" rpy="0 0 0"/>
   </joint>
 
-  <link name="camera_pillar_link">
+  <link name="wheel_front_left">
     <visual>
-      <origin xyz="0 0 ${camera_pillar_height_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="${camera_radius_cm * cm}" length="${camera_pillar_height_cm * cm}"/>
-      </geometry>
-      <material name="sensor_black"/>
-    </visual>
-  </link>
-
-  <joint name="base_to_camera_pillar" type="fixed">
-    <parent link="base_link"/>
-    <child link="camera_pillar_link"/>
-    <origin xyz="${camera_x_cm * cm} ${camera_y_cm * cm} ${camera_z_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="camera_arm_link">
-    <visual>
-      <origin xyz="${camera_arm_length_cm * cm / 2.0} 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="${camera_arm_length_cm * cm} ${camera_radius_cm * 4.0 * cm} ${camera_radius_cm * 4.0 * cm}"/>
-      </geometry>
-      <material name="sensor_black"/>
-    </visual>
-  </link>
-
-  <joint name="camera_pillar_to_arm" type="fixed">
-    <parent link="camera_pillar_link"/>
-    <child link="camera_arm_link"/>
-    <origin xyz="0 0 ${camera_pillar_height_cm * cm}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="camera_link">
-    <visual>
-      <origin xyz="0 0 ${camera_length_cm * cm / 2.0}" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="${camera_radius_cm * cm}" length="${camera_length_cm * cm}"/>
-      </geometry>
-      <material name="sensor_black"/>
-    </visual>
-  </link>
-
-  <joint name="camera_arm_to_camera" type="fixed">
-    <parent link="camera_arm_link"/>
-    <child link="camera_link"/>
-    <origin xyz="${camera_arm_length_cm * cm} 0 ${-camera_length_cm * cm / 2.0}" rpy="0 0 0"/>
-  </joint>
-
-  <link name="front_left_wheel_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="1.5708 1.5708 0"/>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
       <geometry>
         <cylinder radius="${wheel_radius_cm * cm}" length="${wheel_thickness_cm * cm}"/>
       </geometry>
-      <material name="wheel_gray"/>
+      <material name="black_rubber"/>
     </visual>
   </link>
 
-  <joint name="base_to_front_left_wheel" type="fixed">
+  <joint name="base_to_wheel_front_left" type="fixed">
     <parent link="base_link"/>
-    <child link="front_left_wheel_link"/>
+    <child link="wheel_front_left"/>
     <origin xyz="${wheel_x_offset_cm * cm} ${wheel_y_offset_cm * cm} ${wheel_z_cm * cm}" rpy="0 0 0"/>
   </joint>
 
-  <link name="front_right_wheel_link">
+  <link name="wheel_front_right">
     <visual>
-      <origin xyz="0 0 0" rpy="1.5708 1.5708 0"/>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
       <geometry>
         <cylinder radius="${wheel_radius_cm * cm}" length="${wheel_thickness_cm * cm}"/>
       </geometry>
-      <material name="wheel_gray"/>
+      <material name="black_rubber"/>
     </visual>
   </link>
 
-  <joint name="base_to_front_right_wheel" type="fixed">
+  <joint name="base_to_wheel_front_right" type="fixed">
     <parent link="base_link"/>
-    <child link="front_right_wheel_link"/>
+    <child link="wheel_front_right"/>
     <origin xyz="${wheel_x_offset_cm * cm} ${-wheel_y_offset_cm * cm} ${wheel_z_cm * cm}" rpy="0 0 0"/>
   </joint>
 
-  <link name="rear_left_wheel_link">
+  <link name="wheel_rear_left">
     <visual>
-      <origin xyz="0 0 0" rpy="1.5708 1.5708 0"/>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
       <geometry>
         <cylinder radius="${wheel_radius_cm * cm}" length="${wheel_thickness_cm * cm}"/>
       </geometry>
-      <material name="wheel_gray"/>
+      <material name="black_rubber"/>
     </visual>
   </link>
 
-  <joint name="base_to_rear_left_wheel" type="fixed">
+  <joint name="base_to_wheel_rear_left" type="fixed">
     <parent link="base_link"/>
-    <child link="rear_left_wheel_link"/>
+    <child link="wheel_rear_left"/>
     <origin xyz="${-wheel_x_offset_cm * cm} ${wheel_y_offset_cm * cm} ${wheel_z_cm * cm}" rpy="0 0 0"/>
   </joint>
 
-  <link name="rear_right_wheel_link">
+  <link name="wheel_rear_right">
     <visual>
-      <origin xyz="0 0 0" rpy="1.5708 1.5708 0"/>
+      <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
       <geometry>
         <cylinder radius="${wheel_radius_cm * cm}" length="${wheel_thickness_cm * cm}"/>
       </geometry>
-      <material name="wheel_gray"/>
+      <material name="black_rubber"/>
     </visual>
   </link>
 
-  <joint name="base_to_rear_right_wheel" type="fixed">
+  <joint name="base_to_wheel_rear_right" type="fixed">
     <parent link="base_link"/>
-    <child link="rear_right_wheel_link"/>
+    <child link="wheel_rear_right"/>
     <origin xyz="${-wheel_x_offset_cm * cm} ${-wheel_y_offset_cm * cm} ${wheel_z_cm * cm}" rpy="0 0 0"/>
   </joint>
 </robot>

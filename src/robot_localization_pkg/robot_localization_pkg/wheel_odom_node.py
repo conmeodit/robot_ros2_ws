@@ -47,20 +47,24 @@ class WheelOdomNode(Node):
         # Parameters
         self.declare_parameter('status_topic', '/base/status')
         self.declare_parameter('odom_topic', '/odom')
+        self.declare_parameter('odom_raw_topic', '/odom/raw')
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
-        self.declare_parameter('wheel_radius_m', 0.065)
-        self.declare_parameter('wheel_base_m', 0.32)
+        self.declare_parameter('wheel_radius_m', 0.0425)
+        self.declare_parameter('wheel_base_m', 0.42)
         self.declare_parameter('ticks_per_rev', 600)
+        self.declare_parameter('max_tick_delta', 500)
         self.declare_parameter('publish_tf', True)
 
         self.status_topic = str(self.get_parameter('status_topic').value)
         self.odom_topic = str(self.get_parameter('odom_topic').value)
+        self.odom_raw_topic = str(self.get_parameter('odom_raw_topic').value)
         self.odom_frame = str(self.get_parameter('odom_frame').value)
         self.base_frame = str(self.get_parameter('base_frame').value)
         self.wheel_radius = float(self.get_parameter('wheel_radius_m').value)
         self.wheel_base = float(self.get_parameter('wheel_base_m').value)
         self.ticks_per_rev = int(self.get_parameter('ticks_per_rev').value)
+        self.max_tick_delta = int(self.get_parameter('max_tick_delta').value)
         self.publish_tf = bool(self.get_parameter('publish_tf').value)
 
         # Derived
@@ -76,6 +80,7 @@ class WheelOdomNode(Node):
 
         # ROS interfaces
         self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
+        self.odom_raw_pub = self.create_publisher(Odometry, self.odom_raw_topic, 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.status_sub = self.create_subscription(
             String, self.status_topic, self._status_cb, 20
@@ -86,7 +91,8 @@ class WheelOdomNode(Node):
             f'wheel_radius={self.wheel_radius}m, '
             f'wheel_base={self.wheel_base}m, '
             f'ticks_per_rev={self.ticks_per_rev}, '
-            f'm/tick={self.meters_per_tick:.6f}'
+            f'm/tick={self.meters_per_tick:.6f}, '
+            f'odom_raw_topic={self.odom_raw_topic}'
         )
 
     def _status_cb(self, msg: String):
@@ -108,8 +114,8 @@ class WheelOdomNode(Node):
         d_left = left_ticks - self.prev_left_ticks
         d_right = right_ticks - self.prev_right_ticks
 
-        # Reject encoder jumps (> 500 ticks in one step ≈ implausible)
-        if abs(d_left) > 500 or abs(d_right) > 500:
+        # Reject encoder jumps that are too large for one telemetry step.
+        if abs(d_left) > self.max_tick_delta or abs(d_right) > self.max_tick_delta:
             self.get_logger().warn(
                 f'Encoder jump rejected: dL={d_left}, dR={d_right}'
             )
@@ -182,6 +188,7 @@ class WheelOdomNode(Node):
         odom.twist.covariance = twist_cov
 
         self.odom_pub.publish(odom)
+        self.odom_raw_pub.publish(odom)
 
         # Broadcast TF
         if self.publish_tf:

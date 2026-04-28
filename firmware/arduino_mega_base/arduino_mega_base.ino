@@ -38,6 +38,8 @@ int16_t gyroX = 0,  gyroY = 0,  gyroZ = 0;
 // Telemetry at 20 Hz for ROS2 odometry (was 0.5s = 2 Hz)
 static const float TELEMETRY_DT_SEC = 0.05f; 
 static const uint32_t CMD_TIMEOUT_MS = 500;  
+static const float WHEEL_BASE_M = 0.42f;
+static const float MAX_WHEEL_SPEED_MPS = 0.20f;
 
 volatile int32_t g_left_ticks = 0;
 volatile int32_t g_right_ticks = 0;
@@ -136,6 +138,12 @@ void setMotorPWM(int16_t left_pwm, int16_t right_pwm) {
   }
 }
 
+int16_t wheelSpeedToPWM(float wheel_mps) {
+  float ratio = wheel_mps / MAX_WHEEL_SPEED_MPS;
+  int pwm = (int)(ratio * 255.0f);
+  return (int16_t)constrain(pwm, -255, 255);
+}
+
 void stopMotors() {
   target_left_pwm = 0; 
   target_right_pwm = 0;
@@ -174,9 +182,11 @@ void parseCommand(const String &line) {
     if (p1 < 0 || p2 < 0) return;
     float v = line.substring(p1 + 1, p2).toFloat(); 
     float w = line.substring(p2 + 1).toFloat();     
-    
-    target_left_pwm = constrain((v - w) * 200, -255, 255);
-    target_right_pwm = constrain((v + w) * 200, -255, 255);
+
+    float left_mps = v - 0.5f * w * WHEEL_BASE_M;
+    float right_mps = v + 0.5f * w * WHEEL_BASE_M;
+    target_left_pwm = wheelSpeedToPWM(left_mps);
+    target_right_pwm = wheelSpeedToPWM(right_mps);
     
     setMotorPWM(target_left_pwm, target_right_pwm);
     last_cmd_ms = millis();

@@ -1,13 +1,15 @@
 Panels:
   - Class: rviz_common/Displays
-    Help Height: 78
     Name: Displays
     Property Tree Widget:
       Expanded:
         - /Global Options1
+        - /TF1
         - /Map1
         - /LaserScan1
         - /RobotModel1
+        - /Autonomy Path1
+        - /Autonomy Markers1
       Splitter Ratio: 0.5
   - Class: rviz_common/Views
     Expanded:
@@ -26,9 +28,22 @@ Visualization Manager:
         Value: Lines
       Name: Grid
       Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
       Plane: XY
-      Plane Cell Count: 10
+      Plane Cell Count: 20
       Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Marker Scale: 0.5
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
       Value: true
     - Alpha: 0.7
       Class: rviz_default_plugins/Map
@@ -50,6 +65,30 @@ Visualization Manager:
         Value: /map_updates
       Use Timestamp: false
       Value: true
+    - Alpha: 0.7
+      Class: rviz_default_plugins/Map
+      Color Scheme: costmap
+      Enabled: false
+      Name: Global Costmap
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /global_costmap/costmap
+      Value: false
+    - Alpha: 0.7
+      Class: rviz_default_plugins/Map
+      Color Scheme: costmap
+      Enabled: false
+      Name: Local Costmap
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /local_costmap/costmap
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -84,6 +123,16 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Class: rviz_default_plugins/Odometry
+      Enabled: false
+      Name: Odometry
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /odom
+      Value: false
     - Alpha: 1
       Class: rviz_default_plugins/RobotModel
       Collision Enabled: false
@@ -97,6 +146,26 @@ Visualization Manager:
       Enabled: true
       Name: RobotModel
       Visual Enabled: true
+      Value: true
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Autonomy Path
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /autonomy/path
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Autonomy Markers
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /autonomy/markers
       Value: true
   Enabled: true
   Global Options:
@@ -138,16 +207,16 @@ Visualization Manager:
     Current:
       Class: rviz_default_plugins/Orbit
       Name: Current View
-      Distance: 2.5
+      Distance: 6
       Focal Point:
         X: 0
         Y: 0
-        Z: 0.2
-      Pitch: 0.7
+        Z: 0
+      Pitch: 0.8
       Yaw: 0.8
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
     Saved: ~
 Window Geometry:
-  Height: 800
-  Width: 1200
+  Height: 900
+  Width: 1400

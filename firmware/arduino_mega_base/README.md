@@ -6,22 +6,23 @@ Sketch: `arduino_mega_base.ino`
 - RX command from Pi: `CMD_VEL,<linear_x_mps>,<angular_z_rps>`
 - Optional: `ESTOP,1|0`, `MOTOR,1|0`
 - Arm control: `SERVO,<id>,<deg>`
-  - `id=1..5`, riêng khớp nâng `id=2` sẽ chạy đồng bộ 2 servo (`D31/D32`)
+  - `id=1..5`, riêng khớp nâng `id=2` chạy đồng bộ 2 servo (`D23/D24`)
 - TX telemetry to Pi (20 Hz):
-  - `STAT,mode,estop,motor_enabled,left_ticks,right_ticks,battery_voltage,battery_current,fault,fault_text`
+  - `$TELE,left_ticks,right_ticks,accelX,accelY,accelZ,gyroX,gyroY,gyroZ`
 
 ## Default pins
-- Left BTS7960: `RPWM=D5`, `LPWM=D6`
-- Right BTS7960: `RPWM=D7`, `LPWM=D8`
+- Left BTS7960: `RPWM=D6`, `LPWM=D5`
+- Right BTS7960: `RPWM=D8`, `LPWM=D7`
 - Left encoder: `A=D2`, `B=D3`
-- Right encoder: `A=D18`, `B=D19`
+- Right encoder: `A=D19`, `B=D18`
+- Servos: `S1=D22`, `S2_LEFT=D23`, `S2_RIGHT=D24`, `S3=D25`, `S4=D26`, `S5=D27`
+- MPU6500: I2C address `0x68`
 - UART link to HC-05: `Serial2` (`TX2=D16`, `RX2=D17`)
 
 ## Tune before run
-- `WHEEL_RADIUS_M`
 - `WHEEL_BASE_M`
-- `TICKS_PER_REV`
-- PID gains: `KP`, `KI`, `KD`
+- `MAX_WHEEL_SPEED_MPS`
+- `TICKS_PER_REV` is configured on the ROS 2 odometry node.
 
 ## Safety
 - Command timeout is `500 ms`: robot auto stops if no command.
