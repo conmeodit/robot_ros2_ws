@@ -1,11 +1,40 @@
+from urllib.parse import unquote, urlparse
+
 from launch import LaunchDescription
+from launch.actions import LogInfo, UnsetEnvironmentVariable
 from launch_ros.actions import Node
 import os
 from ament_index_python.packages import get_package_share_directory
 
+def _cyclonedds_uri_to_path(uri: str) -> str | None:
+    parsed = urlparse(uri)
+
+    if parsed.scheme == 'file':
+        return unquote(parsed.path)
+
+    if parsed.scheme == '':
+        return uri
+
+    return None
+
 def generate_launch_description():
     # Get package directory
     robot_vision_dir = get_package_share_directory('robot_vision')
+    launch_actions = []
+
+    cyclonedds_uri = os.environ.get('CYCLONEDDS_URI')
+    if cyclonedds_uri:
+        cyclonedds_path = _cyclonedds_uri_to_path(cyclonedds_uri)
+        if cyclonedds_path and not os.path.exists(cyclonedds_path):
+            launch_actions.extend([
+                LogInfo(
+                    msg=(
+                        f"Unsetting invalid CYCLONEDDS_URI '{cyclonedds_uri}' "
+                        f"because '{cyclonedds_path}' does not exist."
+                    )
+                ),
+                UnsetEnvironmentVariable(name='CYCLONEDDS_URI'),
+            ])
 
     # USB Camera Node
     camera_node = Node(
@@ -35,7 +64,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    return LaunchDescription([
+    return LaunchDescription(launch_actions + [
         camera_node,
         detector_node,
     ])

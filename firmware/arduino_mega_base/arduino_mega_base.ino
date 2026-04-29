@@ -36,7 +36,7 @@ int16_t gyroX = 0, gyroY = 0, gyroZ = 0;
 // =========================
 // System parameters
 // =========================
-static const float TELEMETRY_DT_SEC = 0.1f;
+static const float TELEMETRY_DT_SEC = 0.05f;
 static const uint32_t CMD_TIMEOUT_MS = 500;
 static const float WHEEL_SEPARATION_M = 0.42f;
 static const float MAX_LINEAR_CMD_MPS = 0.16f;
