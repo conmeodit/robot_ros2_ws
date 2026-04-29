@@ -22,4 +22,3 @@ cd ~/robot_ros2_ws
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 rviz2 -d src/vacuum_driver/rviz/mapping.rviz
-
