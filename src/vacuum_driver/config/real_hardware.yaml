@@ -19,14 +19,14 @@ real_hardware_driver:
     lidar_frame_id: laser
     publish_odom_tf: true
     publish_lidar_tf: false
-    lidar_offset_x: -0.10
+    lidar_offset_x: 0.10
     lidar_offset_y: 0.0
     lidar_offset_z: 0.081
     wheel_radius: 0.0425
     wheel_separation: 0.42
     encoder_ticks_per_rev: 1320.0
-    reverse_left_ticks: true
-    reverse_right_ticks: true
+    reverse_left_ticks: false
+    reverse_right_ticks: false
     auto_detect_encoder_direction: true
     invert_odom_yaw: false
     encoder_direction_min_delta_ticks: 3

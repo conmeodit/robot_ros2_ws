@@ -1178,8 +1178,8 @@ class AutonomousCleaningNode(Node):
         body.pose.orientation.y = qy
         body.pose.orientation.z = qz
         body.pose.orientation.w = qw
-        body.scale.x = 0.30
-        body.scale.y = 0.40
+        body.scale.x = 0.35
+        body.scale.y = 0.42
         body.scale.z = 0.06
         self._set_color(body, 1.0, 0.55, 0.18, 0.95)
         markers.append(body)
@@ -1207,8 +1207,8 @@ class AutonomousCleaningNode(Node):
             self._set_color(wheel, 0.03, 0.03, 0.03, 1.0)
             markers.append(wheel)
 
-        lidar_x = self.pose.x - 0.10 * math.cos(self.pose.yaw)
-        lidar_y = self.pose.y - 0.10 * math.sin(self.pose.yaw)
+        lidar_x = self.pose.x + 0.10 * math.cos(self.pose.yaw)
+        lidar_y = self.pose.y + 0.10 * math.sin(self.pose.yaw)
         lidar = self._base_marker(6, Marker.CYLINDER, 'robot_model')
         lidar.pose.position.x = lidar_x
         lidar.pose.position.y = lidar_y
@@ -1222,8 +1222,8 @@ class AutonomousCleaningNode(Node):
         footprint = self._base_marker(7, Marker.LINE_STRIP, 'robot_model')
         footprint.scale.x = 0.025
         self._set_color(footprint, 0.0, 0.9, 0.8, 0.95)
-        half_x = 0.5 * 0.30 + 0.03
-        half_y = 0.5 * 0.40 + 0.03
+        half_x = 0.5 * 0.35 + 0.03
+        half_y = 0.5 * 0.42 + 0.03
         corners = [
             (half_x, half_y),
             (half_x, -half_y),
