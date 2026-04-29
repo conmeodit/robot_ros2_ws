@@ -24,6 +24,8 @@ DEFAULT_WHEEL_SEPARATION_M = 0.42
 DEFAULT_LIDAR_OFFSET_X_M = -0.1
 DEFAULT_LIDAR_OFFSET_Y_M = 0.0
 DEFAULT_LIDAR_OFFSET_Z_M = 0.081
+DEFAULT_MIN_DRIVE_PWM = 70
+DEFAULT_MAX_DRIVE_PWM = 220
 
 
 def clamp(value, lower, upper):
@@ -110,6 +112,9 @@ class RealHardwareDriver(Node):
         self.declare_parameter('serial_exclusive', True)
         self.declare_parameter('max_linear_speed_mps', 0.16)
         self.declare_parameter('max_angular_speed_radps', 0.85)
+        self.declare_parameter('send_raw_pwm_command', True)
+        self.declare_parameter('min_drive_pwm', DEFAULT_MIN_DRIVE_PWM)
+        self.declare_parameter('max_drive_pwm', DEFAULT_MAX_DRIVE_PWM)
         self.declare_parameter('reject_encoder_jump', True)
         self.declare_parameter('max_tick_delta', 5000)
 
@@ -167,6 +172,12 @@ class RealHardwareDriver(Node):
         )
         self.max_angular = max(
             0.05, float(self.get_parameter('max_angular_speed_radps').value)
+        )
+        self.send_raw_pwm_command = bool(self.get_parameter('send_raw_pwm_command').value)
+        self.min_drive_pwm = max(0, int(self.get_parameter('min_drive_pwm').value))
+        self.max_drive_pwm = max(
+            self.min_drive_pwm + 1,
+            int(self.get_parameter('max_drive_pwm').value),
         )
         self.reject_encoder_jump = bool(self.get_parameter('reject_encoder_jump').value)
         self.max_tick_delta = max(1, int(self.get_parameter('max_tick_delta').value))
@@ -368,6 +379,9 @@ class RealHardwareDriver(Node):
             linear = self.cmd_linear
             angular = self.cmd_angular
         self._serial_write(f'CMD_VEL,{linear:.4f},{angular:.4f}')
+        if self.send_raw_pwm_command:
+            left_pwm, right_pwm = self._cmd_vel_to_pwm(linear, angular)
+            self._serial_write(f'PWM,{left_pwm},{right_pwm}')
         if (
             self.ser is not None
             and self.ser.is_open
@@ -388,6 +402,23 @@ class RealHardwareDriver(Node):
                 self.get_logger().info(
                     f'cmd_vel -> Arduino: linear={linear:.3f}, angular={angular:.3f}'
                 )
+
+    def _cmd_vel_to_pwm(self, linear: float, angular: float):
+        left_wheel_mps = linear - 0.5 * angular * self.wheel_separation
+        right_wheel_mps = linear + 0.5 * angular * self.wheel_separation
+        return self._wheel_speed_to_pwm(left_wheel_mps), self._wheel_speed_to_pwm(right_wheel_mps)
+
+    def _wheel_speed_to_pwm(self, wheel_speed_mps: float) -> int:
+        if abs(wheel_speed_mps) < 0.001:
+            return 0
+
+        max_wheel_speed_mps = self.max_linear + 0.5 * self.max_angular * self.wheel_separation
+        normalized = abs(wheel_speed_mps) / max(max_wheel_speed_mps, 0.001)
+        normalized = clamp(normalized, 0.0, 1.0)
+        pwm = self.min_drive_pwm + int((self.max_drive_pwm - self.min_drive_pwm) * normalized)
+        if wheel_speed_mps < 0.0:
+            pwm = -pwm
+        return int(clamp(pwm, -self.max_drive_pwm, self.max_drive_pwm))
 
     def _read_serial_tick(self):
         if self.ser is None or not self.ser.is_open:

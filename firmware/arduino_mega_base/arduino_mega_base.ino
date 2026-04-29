@@ -37,6 +37,7 @@ int16_t gyroX = 0, gyroY = 0, gyroZ = 0;
 // System parameters
 // =========================
 static const float TELEMETRY_DT_SEC = 0.05f;
+static const uint32_t BT_TELEMETRY_INTERVAL_MS = 500;
 static const uint32_t CMD_TIMEOUT_MS = 500;
 static const float WHEEL_SEPARATION_M = 0.42f;
 static const float MAX_LINEAR_CMD_MPS = 0.16f;
@@ -58,6 +59,7 @@ String mode = "MANUAL";
 
 uint32_t last_cmd_ms = 0;
 uint32_t last_telemetry_us = 0;
+uint32_t last_bt_telemetry_ms = 0;
 
 String usb_cmd_buffer;
 String bt_cmd_buffer;
@@ -230,6 +232,18 @@ void parseCommand(const String &line) {
     return;
   }
 
+  if (cmd == "PWM") {
+    int p2 = line.indexOf(',', p1 + 1);
+    if (p1 < 0 || p2 < 0) return;
+    target_left_pwm = constrain(line.substring(p1 + 1, p2).toInt(), -255, 255);
+    target_right_pwm = constrain(line.substring(p2 + 1).toInt(), -255, 255);
+
+    setMotorPWM(target_left_pwm, target_right_pwm);
+    mode = "PWM";
+    last_cmd_ms = millis();
+    return;
+  }
+
   if (cmd == "ESTOP") {
     estop = (line.substring(p1 + 1).toInt() != 0);
     if (estop) stopMotors();
@@ -341,7 +355,12 @@ void sendTelemetry() {
   readMPU();
 
   sendTelemetryLine(Serial, left_ticks, right_ticks);
-  sendTelemetryLine(Serial2, left_ticks, right_ticks);
+
+  uint32_t now_ms = millis();
+  if (now_ms - last_bt_telemetry_ms >= BT_TELEMETRY_INTERVAL_MS) {
+    last_bt_telemetry_ms = now_ms;
+    sendTelemetryLine(Serial2, left_ticks, right_ticks);
+  }
 }
 
 // =========================
@@ -391,6 +410,7 @@ void setup() {
 
   last_cmd_ms = millis();
   last_telemetry_us = micros();
+  last_bt_telemetry_ms = millis();
   Serial.println("READY,arduino_mega_base");
   Serial2.println("READY,arduino_mega_base");
 }
