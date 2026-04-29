@@ -104,6 +104,7 @@ class RealHardwareDriver(Node):
         self.declare_parameter('encoder_direction_min_delta_ticks', 3)
         self.declare_parameter('write_rate_hz', 20.0)
         self.declare_parameter('read_rate_hz', 50.0)
+        self.declare_parameter('odom_publish_rate_hz', 30.0)
         self.declare_parameter('cmd_vel_timeout_sec', 0.8)
         self.declare_parameter('serial_reconnect_sec', 3.0)
         self.declare_parameter('serial_exclusive', True)
@@ -151,6 +152,9 @@ class RealHardwareDriver(Node):
         )
         self.write_rate_hz = max(1.0, float(self.get_parameter('write_rate_hz').value))
         self.read_rate_hz = max(1.0, float(self.get_parameter('read_rate_hz').value))
+        self.odom_publish_rate_hz = max(
+            1.0, float(self.get_parameter('odom_publish_rate_hz').value)
+        )
         self.cmd_vel_timeout_sec = max(
             0.1, float(self.get_parameter('cmd_vel_timeout_sec').value)
         )
@@ -176,6 +180,8 @@ class RealHardwareDriver(Node):
         self.prev_left_ticks: Optional[int] = None
         self.prev_right_ticks: Optional[int] = None
         self.last_odom_time_ns: Optional[int] = None
+        self.last_linear_vel = 0.0
+        self.last_angular_vel = 0.0
         self.left_tick_sign = -1 if self.reverse_left_ticks else 1
         self.right_tick_sign = -1 if self.reverse_right_ticks else 1
         self.encoder_direction_locked = not self.auto_detect_encoder_direction
@@ -215,6 +221,9 @@ class RealHardwareDriver(Node):
 
         self.write_timer = self.create_timer(1.0 / self.write_rate_hz, self._write_cmd_tick)
         self.read_timer = self.create_timer(1.0 / self.read_rate_hz, self._read_serial_tick)
+        self.odom_timer = self.create_timer(
+            1.0 / self.odom_publish_rate_hz, self._publish_current_odometry_tick
+        )
         self.reconnect_timer = self.create_timer(
             self.serial_reconnect_sec, self._try_connect
         )
@@ -481,11 +490,30 @@ class RealHardwareDriver(Node):
         msg.data = [int(left_pwm), int(right_pwm)]
         self.motor_pwm_pub.publish(msg)
 
+    def _publish_current_odometry_tick(self):
+        now_ns = int(self.get_clock().now().nanoseconds)
+        stamp = time_msg_from_ns(now_ns)
+        odom_age_sec = (
+            (now_ns - self.last_odom_time_ns) * 1e-9
+            if self.last_odom_time_ns is not None
+            else float('inf')
+        )
+        if odom_age_sec > 0.5:
+            linear_vel = 0.0
+            angular_vel = 0.0
+        else:
+            linear_vel = self.last_linear_vel
+            angular_vel = self.last_angular_vel
+        self._publish_odometry_state(stamp, linear_vel, angular_vel)
+
     def _update_odometry(self, left_ticks: int, right_ticks: int, stamp: TimeMsg, now_ns: int):
         if self.prev_left_ticks is None or self.prev_right_ticks is None:
             self.prev_left_ticks = left_ticks
             self.prev_right_ticks = right_ticks
             self.last_odom_time_ns = now_ns
+            self.last_linear_vel = 0.0
+            self.last_angular_vel = 0.0
+            self._publish_odometry_state(stamp, 0.0, 0.0)
             return
 
         dt = (now_ns - self.last_odom_time_ns) * 1e-9 if self.last_odom_time_ns else 0.1
@@ -532,10 +560,18 @@ class RealHardwareDriver(Node):
         delta_yaw = (dist_right - dist_left) / max(self.wheel_separation, 1e-6)
         linear_vel = delta_s / max(dt, 1e-6)
         angular_vel = delta_yaw / max(dt, 1e-6)
+        self.last_linear_vel = linear_vel
+        self.last_angular_vel = angular_vel
 
         self.x_raw += delta_s * math.cos(self.yaw_raw + 0.5 * delta_yaw)
         self.y_raw += delta_s * math.sin(self.yaw_raw + 0.5 * delta_yaw)
         self.yaw_raw = normalize_angle(self.yaw_raw + delta_yaw)
+        self.x += delta_s * math.cos(self.yaw + 0.5 * delta_yaw)
+        self.y += delta_s * math.sin(self.yaw + 0.5 * delta_yaw)
+        self.yaw = normalize_angle(self.yaw + delta_yaw)
+        self._publish_odometry_state(stamp, linear_vel, angular_vel)
+
+    def _publish_odometry_state(self, stamp: TimeMsg, linear_vel: float, angular_vel: float):
         self._publish_odom_msg(
             self.odom_raw_pub,
             self.x_raw,
@@ -546,10 +582,6 @@ class RealHardwareDriver(Node):
             stamp,
             publish_tf=False,
         )
-
-        self.x += delta_s * math.cos(self.yaw + 0.5 * delta_yaw)
-        self.y += delta_s * math.sin(self.yaw + 0.5 * delta_yaw)
-        self.yaw = normalize_angle(self.yaw + delta_yaw)
         self._publish_odom_msg(
             self.odom_pub,
             self.x,

@@ -31,6 +31,7 @@ real_hardware_driver:
     encoder_direction_min_delta_ticks: 3
     write_rate_hz: 20.0
     read_rate_hz: 50.0
+    odom_publish_rate_hz: 30.0
     cmd_vel_timeout_sec: 0.8
     serial_reconnect_sec: 3.0
     serial_exclusive: true
