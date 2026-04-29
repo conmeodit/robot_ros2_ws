@@ -56,7 +56,8 @@ def launch_setup(context, *args, **kwargs):
     slam_share = get_package_share_directory('slam_toolbox')
     default_urdf = os.path.join(pkg_share, 'urdf', 'vacuum_robot.urdf')
 
-    use_sim_time = LaunchConfiguration('use_sim_time').perform(context)
+    use_sim_time_arg = LaunchConfiguration('use_sim_time').perform(context)
+    use_sim_time = _truthy(use_sim_time_arg)
     use_rviz = _truthy(LaunchConfiguration('use_rviz').perform(context))
     use_lidar = _truthy(LaunchConfiguration('use_lidar').perform(context))
     use_scan_filter = _truthy(LaunchConfiguration('use_scan_filter').perform(context))
@@ -192,7 +193,7 @@ def launch_setup(context, *args, **kwargs):
             ),
             launch_arguments={
                 'slam_params_file': slam_params,
-                'use_sim_time': use_sim_time,
+                'use_sim_time': use_sim_time_arg,
                 'autostart': 'true',
                 'use_lifecycle_manager': 'false',
             }.items(),
@@ -238,11 +239,11 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument('use_sim_time', default_value='false'),
-            DeclareLaunchArgument('use_rviz', default_value='true'),
+            DeclareLaunchArgument('use_rviz', default_value='false'),
             DeclareLaunchArgument('use_lidar', default_value='true'),
             DeclareLaunchArgument('use_scan_filter', default_value='true'),
             DeclareLaunchArgument('reset_slam', default_value='true'),
-            DeclareLaunchArgument('arduino_port', default_value='/dev/rfcomm0'),
+            DeclareLaunchArgument('arduino_port', default_value='/dev/ttyUSB0'),
             DeclareLaunchArgument('arduino_baudrate', default_value='9600'),
             DeclareLaunchArgument('lidar_port', default_value='auto'),
             DeclareLaunchArgument('lidar_baudrate', default_value='115200'),
