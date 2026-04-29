@@ -104,6 +104,7 @@ class RealHardwareDriver(Node):
         self.declare_parameter('reverse_left_ticks', False)
         self.declare_parameter('reverse_right_ticks', False)
         self.declare_parameter('auto_detect_encoder_direction', True)
+        self.declare_parameter('invert_odom_yaw', False)
         self.declare_parameter('encoder_direction_min_delta_ticks', 3)
         self.declare_parameter('write_rate_hz', 20.0)
         self.declare_parameter('read_rate_hz', 50.0)
@@ -152,6 +153,7 @@ class RealHardwareDriver(Node):
         self.auto_detect_encoder_direction = bool(
             self.get_parameter('auto_detect_encoder_direction').value
         )
+        self.invert_odom_yaw = bool(self.get_parameter('invert_odom_yaw').value)
         self.encoder_direction_min_delta_ticks = max(
             1, int(self.get_parameter('encoder_direction_min_delta_ticks').value)
         )
@@ -683,6 +685,8 @@ class RealHardwareDriver(Node):
         dist_right = delta_right_ticks * self.meters_per_tick
         delta_s = 0.5 * (dist_left + dist_right)
         delta_yaw = (dist_right - dist_left) / max(self.wheel_separation, 1e-6)
+        if self.invert_odom_yaw:
+            delta_yaw = -delta_yaw
         linear_vel = delta_s / max(dt, 1e-6)
         angular_vel = delta_yaw / max(dt, 1e-6)
         self.last_linear_vel = linear_vel

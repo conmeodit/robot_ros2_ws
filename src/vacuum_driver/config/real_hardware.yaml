@@ -28,6 +28,7 @@ real_hardware_driver:
     reverse_left_ticks: false
     reverse_right_ticks: false
     auto_detect_encoder_direction: true
+    invert_odom_yaw: true
     encoder_direction_min_delta_ticks: 3
     write_rate_hz: 20.0
     read_rate_hz: 50.0

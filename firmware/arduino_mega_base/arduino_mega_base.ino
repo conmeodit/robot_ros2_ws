@@ -44,8 +44,8 @@ static const float MAX_LINEAR_CMD_MPS = 0.16f;
 static const float MAX_ANGULAR_CMD_RADPS = 0.85f;
 static const int16_t MIN_DRIVE_PWM = 70;
 static const int16_t MAX_DRIVE_PWM = 220;
-static const bool LEFT_MOTOR_INVERTED = true;
-static const bool RIGHT_MOTOR_INVERTED = true;
+static const bool LEFT_MOTOR_INVERTED = false;
+static const bool RIGHT_MOTOR_INVERTED = false;
 
 volatile int32_t g_left_ticks = 0;
 volatile int32_t g_right_ticks = 0;
