@@ -63,7 +63,7 @@ def generate_launch_description():
                 'cmd_vel_topic': '/cmd_vel',
                 'map_frame': 'map',
                 'base_frame': 'base_link',
-                'robot_radius_m': 0.26,
+                'robot_radius_m': 0.29,
                 'front_stop_distance_m': 0.34,
                 'emergency_stop_distance_m': 0.22,
                 'side_clearance_m': 0.23,

@@ -14,14 +14,14 @@
     <visual>
       <origin xyz="0 0 0.029" rpy="0 0 0"/>
       <geometry>
-        <box size="0.30 0.40 0.058"/>
+        <box size="0.35 0.42 0.06"/>
       </geometry>
       <material name="orange_body"/>
     </visual>
     <collision>
       <origin xyz="0 0 0.029" rpy="0 0 0"/>
       <geometry>
-        <box size="0.30 0.40 0.058"/>
+        <box size="0.35 0.42 0.06"/>
       </geometry>
     </collision>
   </link>
