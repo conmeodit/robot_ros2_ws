@@ -1,9 +1,20 @@
 mega_bridge_node:
   ros__parameters:
     port: /dev/rfcomm0
-    baudrate: 115200
+    baudrate: 9600
     cmd_vel_topic: /cmd_vel
-    status_topic: /base/status
+    odom_topic: /odom
+    imu_raw_topic: /imu/data_raw
+    odom_frame_id: odom
+    base_frame_id: base_link
+    imu_frame_id: base_link
+    publish_odom_tf: true
+    wheel_radius: 0.0425
+    wheel_separation: 0.42
+    encoder_ticks_per_rev: 1320.0
     write_rate_hz: 20.0
-    cmd_vel_timeout_sec: 0.5
-    read_enabled: true
+    cmd_vel_timeout_sec: 0.8
+    serial_reconnect_sec: 3.0
+    serial_exclusive: true
+    max_linear_speed_mps: 0.16
+    max_angular_speed_radps: 0.85

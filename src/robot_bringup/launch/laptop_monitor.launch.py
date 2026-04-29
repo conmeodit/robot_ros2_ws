@@ -5,9 +5,9 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     rviz_config_dir = os.path.join(
-        get_package_share_directory('robot_bringup'),
+        get_package_share_directory('vacuum_driver'),
         'rviz',
-        'robot.rviz'
+        'mapping.rviz'
     )
 
     rviz_node = Node(

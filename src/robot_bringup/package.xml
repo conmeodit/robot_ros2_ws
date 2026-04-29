@@ -21,6 +21,7 @@
   <exec_depend>xacro</exec_depend>
   <exec_depend>robot_description</exec_depend>
   <exec_depend>robot_vision</exec_depend>
+  <exec_depend>vacuum_driver</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
