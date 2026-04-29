@@ -1,6 +1,6 @@
 real_hardware_driver:
   ros__parameters:
-    port: /dev/ttyUSB0
+    port: auto
     baudrate: 115200
     cmd_vel_topic: /cmd_vel
     odom_topic: /odom

@@ -73,7 +73,7 @@ class RealHardwareDriver(Node):
     def __init__(self):
         super().__init__('real_hardware_driver')
 
-        self.declare_parameter('port', '/dev/ttyUSB0')
+        self.declare_parameter('port', 'auto')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('odom_topic', '/odom')
@@ -269,7 +269,7 @@ class RealHardwareDriver(Node):
                 value += 35
             if '/dev/ttyusb' in lowered:
                 value += 20
-            for hint in ('arduino', 'mega', 'ch340', 'wch', 'usb-serial'):
+            for hint in ('arduino', 'mega', 'ch340', 'wch', '1a86', 'usb-serial', 'usb_serial'):
                 if hint in lowered:
                     value += 45
             for hint in ('lidar', 'rplidar', 'sllidar', 'slamtec', 'cp210'):
@@ -277,7 +277,12 @@ class RealHardwareDriver(Node):
                     value -= 60
             return value
 
-        return max(unique_candidates, key=lambda item: (score(item), item))
+        selected = max(unique_candidates, key=lambda item: (score(item), item))
+        self.get_logger().info(
+            f'Auto-detected Arduino port: {selected} '
+            f'(candidates: {", ".join(unique_candidates)})'
+        )
+        return selected
 
     def _try_connect(self):
         if self.ser is not None and self.ser.is_open:
