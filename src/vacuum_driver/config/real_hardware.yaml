@@ -1,0 +1,54 @@
+real_hardware_driver:
+  ros__parameters:
+    port: /dev/rfcomm0
+    baudrate: 9600
+    cmd_vel_topic: /cmd_vel
+    odom_topic: /odom
+    odom_raw_topic: /odom/raw
+    imu_topic: /imu/data
+    imu_raw_topic: /imu/data_raw
+    telemetry_topic: /hardware/mega/telemetry
+    encoder_ticks_topic: /hardware/encoder_ticks
+    motor_pwm_topic: /hardware/motor_pwm
+    estop_topic: /hardware/mega/estop
+    motor_enable_topic: /hardware/mega/motor_enable
+    servo_topic: /hardware/mega/servo
+    odom_frame_id: odom
+    base_frame_id: base_link
+    imu_frame_id: base_link
+    lidar_frame_id: laser
+    publish_odom_tf: true
+    publish_lidar_tf: false
+    lidar_offset_x: -0.10
+    lidar_offset_y: 0.0
+    lidar_offset_z: 0.081
+    wheel_radius: 0.0425
+    wheel_separation: 0.42
+    encoder_ticks_per_rev: 1320.0
+    reverse_left_ticks: false
+    reverse_right_ticks: false
+    auto_detect_encoder_direction: true
+    encoder_direction_min_delta_ticks: 3
+    write_rate_hz: 20.0
+    read_rate_hz: 50.0
+    cmd_vel_timeout_sec: 0.8
+    serial_reconnect_sec: 3.0
+    serial_exclusive: true
+    max_linear_speed_mps: 0.16
+    max_angular_speed_radps: 0.85
+    reject_encoder_jump: true
+    max_tick_delta: 5000
+
+scan_filter_node:
+  ros__parameters:
+    input_topic: /scan/raw
+    output_topic: /scan
+    reverse_scan: false
+    scan_use_inf_for_max_range: true
+    scan_max_range_margin: 0.02
+    scan_filter_enabled: true
+    scan_filter_window: 5
+    scan_filter_min_valid_neighbors: 3
+    scan_filter_outlier_threshold_m: 0.12
+    scan_filter_temporal_alpha: 0.60
+    scan_filter_temporal_jump_threshold_m: 0.20
