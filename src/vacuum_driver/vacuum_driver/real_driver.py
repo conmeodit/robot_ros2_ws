@@ -1,6 +1,7 @@
 import glob
 import math
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -110,6 +111,8 @@ class RealHardwareDriver(Node):
         self.declare_parameter('cmd_vel_timeout_sec', 0.8)
         self.declare_parameter('serial_reconnect_sec', 3.0)
         self.declare_parameter('serial_exclusive', True)
+        self.declare_parameter('reset_serial_on_connect', True)
+        self.declare_parameter('serial_boot_wait_sec', 2.2)
         self.declare_parameter('max_linear_speed_mps', 0.16)
         self.declare_parameter('max_angular_speed_radps', 0.85)
         self.declare_parameter('send_raw_pwm_command', True)
@@ -167,6 +170,12 @@ class RealHardwareDriver(Node):
             1.0, float(self.get_parameter('serial_reconnect_sec').value)
         )
         self.serial_exclusive = bool(self.get_parameter('serial_exclusive').value)
+        self.reset_serial_on_connect = bool(
+            self.get_parameter('reset_serial_on_connect').value
+        )
+        self.serial_boot_wait_sec = max(
+            0.0, float(self.get_parameter('serial_boot_wait_sec').value)
+        )
         self.max_linear = max(
             0.01, float(self.get_parameter('max_linear_speed_mps').value)
         )
@@ -325,6 +334,7 @@ class RealHardwareDriver(Node):
                     self.get_logger().warn(
                         'pyserial does not support exclusive serial locking on this system.'
                     )
+            self._reset_serial_after_connect()
             self.get_logger().info(f'Arduino serial connected: {self.port}')
             self.serial_connected_ns = int(self.get_clock().now().nanoseconds)
             self.no_telemetry_warned = False
@@ -333,6 +343,23 @@ class RealHardwareDriver(Node):
         except Exception as exc:
             self.ser = None
             self.get_logger().warn(f'Arduino serial connect failed ({self.port}): {exc}')
+
+    def _reset_serial_after_connect(self):
+        if not self.reset_serial_on_connect or self.ser is None:
+            return
+        try:
+            self.ser.setDTR(False)
+            time.sleep(0.1)
+            self.ser.reset_input_buffer()
+            self.ser.setDTR(True)
+            if self.serial_boot_wait_sec > 0.0:
+                time.sleep(self.serial_boot_wait_sec)
+            self.ser.reset_input_buffer()
+            self.get_logger().info(
+                f'Arduino serial reset complete; waited {self.serial_boot_wait_sec:.1f}s'
+            )
+        except Exception as exc:
+            self.get_logger().warn(f'Arduino serial reset failed: {exc}')
 
     def _serial_write(self, data: str):
         with self.serial_lock:
