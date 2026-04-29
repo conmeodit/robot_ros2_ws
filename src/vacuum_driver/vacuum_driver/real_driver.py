@@ -73,8 +73,8 @@ class RealHardwareDriver(Node):
     def __init__(self):
         super().__init__('real_hardware_driver')
 
-        self.declare_parameter('port', '/dev/rfcomm0')
-        self.declare_parameter('baudrate', 9600)
+        self.declare_parameter('port', '/dev/ttyUSB0')
+        self.declare_parameter('baudrate', 115200)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('odom_topic', '/odom')
         self.declare_parameter('odom_raw_topic', '/odom/raw')
