@@ -405,6 +405,8 @@ class RealHardwareDriver(Node):
         else:
             linear = self.cmd_linear
             angular = self.cmd_angular
+        left_pwm = None
+        right_pwm = None
         self._serial_write(f'CMD_VEL,{linear:.4f},{angular:.4f}')
         if self.send_raw_pwm_command:
             left_pwm, right_pwm = self._cmd_vel_to_pwm(linear, angular)
@@ -426,9 +428,15 @@ class RealHardwareDriver(Node):
         if abs(linear) > 0.01 or abs(angular) > 0.05:
             if (now_ns - self.last_cmd_log_ns) > 1_000_000_000:
                 self.last_cmd_log_ns = now_ns
-                self.get_logger().info(
-                    f'cmd_vel -> Arduino: linear={linear:.3f}, angular={angular:.3f}'
-                )
+                if left_pwm is None or right_pwm is None:
+                    self.get_logger().info(
+                        f'cmd_vel -> Arduino: linear={linear:.3f}, angular={angular:.3f}'
+                    )
+                else:
+                    self.get_logger().info(
+                        f'cmd_vel -> Arduino: linear={linear:.3f}, angular={angular:.3f}, '
+                        f'raw_pwm=({left_pwm},{right_pwm})'
+                    )
 
     def _cmd_vel_to_pwm(self, linear: float, angular: float):
         left_wheel_mps = linear - 0.5 * angular * self.wheel_separation
