@@ -1207,8 +1207,8 @@ class AutonomousCleaningNode(Node):
             self._set_color(wheel, 0.03, 0.03, 0.03, 1.0)
             markers.append(wheel)
 
-        lidar_x = self.pose.x + 0.10 * math.cos(self.pose.yaw)
-        lidar_y = self.pose.y + 0.10 * math.sin(self.pose.yaw)
+        lidar_x = self.pose.x - 0.10 * math.cos(self.pose.yaw)
+        lidar_y = self.pose.y - 0.10 * math.sin(self.pose.yaw)
         lidar = self._base_marker(6, Marker.CYLINDER, 'robot_model')
         lidar.pose.position.x = lidar_x
         lidar.pose.position.y = lidar_y
