@@ -191,6 +191,9 @@ class RealHardwareDriver(Node):
         self.last_cmd_ns = int(self.get_clock().now().nanoseconds)
         self.last_cmd_log_ns = 0
         self.last_telemetry_log_ns = 0
+        self.last_serial_rx_ns = 0
+        self.serial_connected_ns = 0
+        self.no_telemetry_warned = False
         self.unsupported_telemetry_warned = False
         self.ser: Optional['serial.Serial'] = None
         self.serial_lock = threading.Lock()
@@ -312,7 +315,10 @@ class RealHardwareDriver(Node):
                         'pyserial does not support exclusive serial locking on this system.'
                     )
             self.get_logger().info(f'Arduino serial connected: {self.port}')
+            self.serial_connected_ns = int(self.get_clock().now().nanoseconds)
+            self.no_telemetry_warned = False
             self._serial_write('MOTOR,1')
+            self._serial_write('ESTOP,0')
         except Exception as exc:
             self.ser = None
             self.get_logger().warn(f'Arduino serial connect failed ({self.port}): {exc}')
@@ -362,6 +368,20 @@ class RealHardwareDriver(Node):
             linear = self.cmd_linear
             angular = self.cmd_angular
         self._serial_write(f'CMD_VEL,{linear:.4f},{angular:.4f}')
+        if (
+            self.ser is not None
+            and self.ser.is_open
+            and self.last_serial_rx_ns == 0
+            and not self.no_telemetry_warned
+            and self.serial_connected_ns > 0
+            and (now_ns - self.serial_connected_ns) > 3_000_000_000
+        ):
+            self.no_telemetry_warned = True
+            self.get_logger().warn(
+                'Arduino serial is open but no telemetry line has been received. '
+                'Stop launch and test the USB port directly; ROS requires '
+                'firmware/arduino_mega_base to print STAT,... on USB Serial at 115200.'
+            )
         if abs(linear) > 0.01 or abs(angular) > 0.05:
             if (now_ns - self.last_cmd_log_ns) > 1_000_000_000:
                 self.last_cmd_log_ns = now_ns
@@ -393,6 +413,7 @@ class RealHardwareDriver(Node):
                 self._handle_line(line)
 
     def _handle_line(self, line: str):
+        self.last_serial_rx_ns = int(self.get_clock().now().nanoseconds)
         self.telemetry_pub.publish(String(data=line))
         telemetry = self._parse_line(line)
         if telemetry is None:
