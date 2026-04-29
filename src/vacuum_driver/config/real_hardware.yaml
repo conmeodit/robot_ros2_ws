@@ -25,8 +25,8 @@ real_hardware_driver:
     wheel_radius: 0.0425
     wheel_separation: 0.42
     encoder_ticks_per_rev: 1320.0
-    reverse_left_ticks: false
-    reverse_right_ticks: false
+    reverse_left_ticks: true
+    reverse_right_ticks: true
     auto_detect_encoder_direction: true
     invert_odom_yaw: false
     encoder_direction_min_delta_ticks: 3
