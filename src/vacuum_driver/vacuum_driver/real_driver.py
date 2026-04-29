@@ -189,6 +189,8 @@ class RealHardwareDriver(Node):
         self.cmd_linear = 0.0
         self.cmd_angular = 0.0
         self.last_cmd_ns = int(self.get_clock().now().nanoseconds)
+        self.last_cmd_log_ns = 0
+        self.last_telemetry_log_ns = 0
         self.ser: Optional['serial.Serial'] = None
         self.serial_lock = threading.Lock()
         self.read_buffer = ''
@@ -309,6 +311,7 @@ class RealHardwareDriver(Node):
                         'pyserial does not support exclusive serial locking on this system.'
                     )
             self.get_logger().info(f'Arduino serial connected: {self.port}')
+            self._serial_write('MOTOR,1')
         except Exception as exc:
             self.ser = None
             self.get_logger().warn(f'Arduino serial connect failed ({self.port}): {exc}')
@@ -358,6 +361,12 @@ class RealHardwareDriver(Node):
             linear = self.cmd_linear
             angular = self.cmd_angular
         self._serial_write(f'CMD_VEL,{linear:.4f},{angular:.4f}')
+        if abs(linear) > 0.01 or abs(angular) > 0.05:
+            if (now_ns - self.last_cmd_log_ns) > 1_000_000_000:
+                self.last_cmd_log_ns = now_ns
+                self.get_logger().info(
+                    f'cmd_vel -> Arduino: linear={linear:.3f}, angular={angular:.3f}'
+                )
 
     def _read_serial_tick(self):
         if self.ser is None or not self.ser.is_open:
@@ -395,6 +404,21 @@ class RealHardwareDriver(Node):
             self._update_odometry(telemetry.left_ticks, telemetry.right_ticks, stamp, now_ns)
         if telemetry.left_pwm is not None and telemetry.right_pwm is not None:
             self._publish_motor_pwm(telemetry.left_pwm, telemetry.right_pwm)
+            if (
+                abs(telemetry.left_pwm) > 0
+                or abs(telemetry.right_pwm) > 0
+                or not telemetry.motor_enabled
+                or telemetry.estop
+            ):
+                if (now_ns - self.last_telemetry_log_ns) > 1_000_000_000:
+                    self.last_telemetry_log_ns = now_ns
+                    self.get_logger().info(
+                        'Arduino telemetry: '
+                        f'mode={telemetry.mode}, estop={int(telemetry.estop)}, '
+                        f'motor={int(telemetry.motor_enabled)}, '
+                        f'ticks=({telemetry.left_ticks},{telemetry.right_ticks}), '
+                        f'pwm=({telemetry.left_pwm},{telemetry.right_pwm})'
+                    )
         if (
             telemetry.accel_x_raw is not None
             and telemetry.accel_y_raw is not None
