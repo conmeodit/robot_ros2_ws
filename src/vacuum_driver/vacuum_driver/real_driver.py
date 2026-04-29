@@ -191,6 +191,7 @@ class RealHardwareDriver(Node):
         self.last_cmd_ns = int(self.get_clock().now().nanoseconds)
         self.last_cmd_log_ns = 0
         self.last_telemetry_log_ns = 0
+        self.unsupported_telemetry_warned = False
         self.ser: Optional['serial.Serial'] = None
         self.serial_lock = threading.Lock()
         self.read_buffer = ''
@@ -453,6 +454,14 @@ class RealHardwareDriver(Node):
     def _parse_stat_line(self, line: str) -> Optional[MegaTelemetry]:
         parts = [part.strip() for part in line.split(',')]
         if len(parts) < 6:
+            if not self.unsupported_telemetry_warned:
+                self.unsupported_telemetry_warned = True
+                self.get_logger().warn(
+                    'Unsupported Arduino STAT telemetry format. '
+                    'If this is from firmware/mega_motor_test, upload '
+                    'firmware/arduino_mega_base with ./upload_mega.sh; '
+                    'the ROS driver sends CMD_VEL and requires encoder telemetry.'
+                )
             return None
         telemetry = MegaTelemetry()
         try:
