@@ -173,6 +173,12 @@ void stopMotors() {
 void parseCommand(const String &line) {
   if (line.length() == 0) return;
 
+  if (line == "PING") {
+    Serial.println("PONG,arduino_mega_base");
+    Serial2.println("PONG,arduino_mega_base");
+    return;
+  }
+
   if (line.length() == 1) {
     char c = line[0];
     int16_t speed_pwm = 150;
@@ -374,6 +380,9 @@ void setupPins() {
 void setup() {
   Serial.begin(115200);
   Serial2.begin(9600);
+  delay(300);
+  Serial.println("BOOT,arduino_mega_base,usb_baud=115200");
+  Serial2.println("BOOT,arduino_mega_base,bt_baud=9600");
 
   setupMPU();
   setupPins();
@@ -382,6 +391,8 @@ void setup() {
 
   last_cmd_ms = millis();
   last_telemetry_us = micros();
+  Serial.println("READY,arduino_mega_base");
+  Serial2.println("READY,arduino_mega_base");
 }
 
 void loop() {

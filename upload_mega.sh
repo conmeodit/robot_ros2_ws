@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Script tự động nạp code cho Arduino Mega
-# Sử dụng: ./upload_mega.sh
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,107 +13,99 @@ ensure_arduino_cli() {
         return 0
     fi
 
-    echo "⚙️  Chưa có arduino-cli, đang tự cài local cho user..."
+    echo "arduino-cli not found; installing to ~/.local/bin"
     mkdir -p "$HOME/.local/bin"
 
     local tmp_dir
-    tmp_dir=$(mktemp -d)
+    tmp_dir="$(mktemp -d)"
     trap 'rm -rf "$tmp_dir"' RETURN
 
     curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh -o "$tmp_dir/install.sh"
     sh "$tmp_dir/install.sh" --dest-dir "$HOME/.local/bin"
-
     export PATH="$HOME/.local/bin:$PATH"
 
     if ! command -v arduino-cli >/dev/null 2>&1; then
-        echo "❌ Cài arduino-cli thất bại."
+        echo "Failed to install arduino-cli"
         exit 1
     fi
-
-    echo "✅ Đã cài arduino-cli: $(arduino-cli version)"
 }
 
 ensure_core_and_libs() {
-    echo "🔄 Đang cập nhật index core/lib..."
     arduino-cli core update-index >/dev/null
     arduino-cli lib update-index >/dev/null
 
     if ! arduino-cli core list | grep -q "$REQUIRED_CORE"; then
-        echo "📦 Đang cài core $REQUIRED_CORE..."
         arduino-cli core install "$REQUIRED_CORE"
-    else
-        echo "✅ Core $REQUIRED_CORE đã sẵn sàng"
     fi
 
     for lib in "${REQUIRED_LIBS[@]}"; do
-        if ! arduino-cli lib list | awk -F' ' '{print $1}' | grep -qx "$lib"; then
-            echo "📚 Đang cài thư viện $lib..."
+        if ! arduino-cli lib list | awk '{print $1}' | grep -qx "$lib"; then
             arduino-cli lib install "$lib"
-        else
-            echo "✅ Thư viện $lib đã sẵn sàng"
         fi
     done
 }
 
-echo "=== Arduino Mega Auto Upload ==="
+detect_mega_ports() {
+    local candidates=()
+    local path
+
+    for path in \
+        /dev/serial/by-id/*1a86* \
+        /dev/serial/by-id/*CH340* \
+        /dev/serial/by-id/*USB_Serial* \
+        /dev/serial/by-id/*Arduino* \
+        /dev/ttyACM* \
+        /dev/ttyUSB*; do
+        [ -e "$path" ] || continue
+        case "$path" in
+            *CP210*|*Silicon_Labs*) continue ;;
+        esac
+        candidates+=("$path")
+    done
+
+    if [ "${#candidates[@]}" -eq 0 ]; then
+        arduino-cli board list | awk '/Mega|Arduino|1a86|CH340|USB Serial|ttyACM|ttyUSB/ {print $1}'
+        return
+    fi
+
+    printf "%s\n" "${candidates[@]}" | awk '!seen[$0]++'
+}
+
+echo "=== Upload Arduino Mega base firmware ==="
 
 if [ ! -d "$PROJECT_DIR" ]; then
-    echo "❌ Không tìm thấy thư mục sketch: $PROJECT_DIR"
+    echo "Sketch directory not found: $PROJECT_DIR"
     exit 1
 fi
 
 ensure_arduino_cli
 ensure_core_and_libs
 
-echo "Đang kiểm tra cổng serial..."
+echo "Compiling $PROJECT_DIR"
+arduino-cli compile --fqbn "$BOARD" "$PROJECT_DIR"
 
-# List tất cả cổng available
-PORTS=$(arduino-cli board list | grep -oE "^/dev/tty[A-Za-z0-9]+" | sort | uniq)
-
-if [ -z "$PORTS" ]; then
-    echo "❌ Không tìm thấy cổng serial nào. Vui lòng kiểm tra kết nối USB."
+mapfile -t PORTS < <(detect_mega_ports)
+if [ "${#PORTS[@]}" -eq 0 ]; then
+    echo "No Arduino Mega serial port found."
+    echo "Available boards:"
+    arduino-cli board list
     exit 1
 fi
 
-echo "Các cổng serial khả dụng:"
-echo "$PORTS"
-echo ""
+echo "Candidate Arduino ports:"
+printf "  %s\n" "${PORTS[@]}"
 
-# Compile trước
-echo "📦 Đang compile sketch..."
-if ! arduino-cli compile --fqbn "$BOARD" "$PROJECT_DIR"; then
-    echo "❌ Compile thất bại. Xem lỗi ở trên để sửa."
-    exit 1
-fi
-echo "✅ Compile thành công"
-echo ""
-
-# Thử upload vào từng cổng
-echo "📤 Đang nạp code..."
-UPLOAD_SUCCESS=0
-
-for PORT in $PORTS; do
-    echo "  Thử cổng: $PORT"
-    
-    if arduino-cli upload -p "$PORT" --fqbn "$BOARD" "$PROJECT_DIR" 2>/dev/null; then
+for PORT in "${PORTS[@]}"; do
+    echo "Uploading to $PORT"
+    if arduino-cli upload -p "$PORT" --fqbn "$BOARD" "$PROJECT_DIR"; then
+        echo "Upload succeeded on $PORT"
         echo ""
-        echo "✅ Nạp thành công vào: $PORT"
-        UPLOAD_SUCCESS=1
-        break
-    else
-        echo "  ❌ Cổng này không phải Arduino Mega hoặc nạp thất bại"
+        echo "Verify USB telemetry:"
+        echo "  python3 -m serial.tools.miniterm $PORT 115200"
+        echo "Expected boot line: BOOT,arduino_mega_base,usb_baud=115200"
+        exit 0
     fi
 done
 
-echo ""
-if [ $UPLOAD_SUCCESS -eq 1 ]; then
-    echo "🎉 Nạp code xong! Board sẵn sàng."
-    exit 0
-else
-    echo "❌ Không thể nạp code vào bất kỳ cổng nào."
-    echo "Kiểm tra:"
-    echo "  1. Arduino Mega có cắm vào Pi không?"
-    echo "  2. Cáp USB có phải dây truyền dữ liệu không? (không phải dây sạc)"
-    echo "  3. Thử nhấn nút RESET trên board trước khi nạp"
-    exit 1
-fi
+echo "Upload failed on every candidate port."
+exit 1
