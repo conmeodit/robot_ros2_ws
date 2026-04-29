@@ -40,7 +40,7 @@ ros2 launch vacuum_driver autonomous_mapping.launch.py
 Default real hardware assumptions:
 
 - Arduino Mega command/telemetry: `/dev/rfcomm0` at `9600`.
-- SLAMTEC/SLLIDAR lidar: `lidar_port:=auto`, publishes raw scan to `/scan/raw`.
+- SLAMTEC/SLLIDAR lidar: `lidar_port:=auto`, `lidar_baudrate:=auto`, publishes raw scan to `/scan/raw`.
 - `scan_filter_node` publishes filtered `/scan` for SLAM and autonomy.
 - `real_driver` sends motor commands from `/cmd_vel` to Arduino and publishes encoder odometry on `/odom`.
 - Odometry is standardized to `wheel_radius=0.0425`, `wheel_separation=0.42`, `encoder_ticks_per_rev=1320.0`.

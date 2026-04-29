@@ -1,5 +1,6 @@
 import glob
 import os
+import time
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -7,6 +8,14 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogI
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+try:
+    import serial
+except ImportError:
+    serial = None
+
+
+DEFAULT_LIDAR_BAUDRATES = (115200, 256000, 460800, 1000000)
 
 
 def _truthy(value):
@@ -51,6 +60,98 @@ def _detect_lidar_port():
     return ranked[0], ordered
 
 
+def _read_probe_response(ser, timeout_sec=0.65):
+    deadline = time.monotonic() + timeout_sec
+    response = bytearray()
+    while time.monotonic() < deadline:
+        chunk = ser.read(64)
+        if chunk:
+            response.extend(chunk)
+            if _has_sllidar_descriptor(response):
+                break
+        else:
+            time.sleep(0.02)
+    return bytes(response)
+
+
+def _has_sllidar_descriptor(response):
+    if not response:
+        return False
+    start = response.find(b'\xa5\x5a')
+    if start < 0 or len(response) < start + 7:
+        return False
+    descriptor = response[start:start + 7]
+    response_len = (
+        descriptor[2]
+        | (descriptor[3] << 8)
+        | (descriptor[4] << 16)
+        | ((descriptor[5] & 0x3F) << 24)
+    )
+    response_type = descriptor[6]
+    return (response_len, response_type) in ((20, 0x04), (3, 0x06))
+
+
+def _probe_sllidar_baudrate(port, baudrate):
+    if serial is None:
+        return False, 'python3-serial is not available in the launch environment'
+
+    try:
+        with serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            timeout=0.05,
+            write_timeout=0.2,
+        ) as ser:
+            time.sleep(0.08)
+            try:
+                ser.reset_input_buffer()
+            except Exception:
+                pass
+
+            # Stop any previous scan, then request device info and health.
+            ser.write(b'\xa5\x25')
+            ser.flush()
+            time.sleep(0.05)
+
+            for command in (b'\xa5\x50', b'\xa5\x52'):
+                try:
+                    ser.reset_input_buffer()
+                except Exception:
+                    pass
+                ser.write(command)
+                ser.flush()
+                response = _read_probe_response(ser)
+                if _has_sllidar_descriptor(response):
+                    return True, response[:12].hex(' ')
+        return False, 'no SLLIDAR descriptor returned'
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _resolve_lidar_baudrate(port, baudrate_arg):
+    value = str(baudrate_arg).strip().lower()
+    if value not in ('auto', 'probe'):
+        return int(baudrate_arg), None
+
+    failures = []
+    for baudrate in DEFAULT_LIDAR_BAUDRATES:
+        ok, detail = _probe_sllidar_baudrate(port, baudrate)
+        if ok:
+            return (
+                baudrate,
+                '[vacuum_driver] lidar_baudrate=auto selected: {} on {} '
+                '(probe response: {})'.format(baudrate, port, detail),
+            )
+        failures.append('{}: {}'.format(baudrate, detail))
+
+    fallback = DEFAULT_LIDAR_BAUDRATES[0]
+    return (
+        fallback,
+        '[vacuum_driver] lidar_baudrate=auto could not verify a SLLIDAR on {}. '
+        'Fallback to {}. Probe failures: {}'.format(port, fallback, '; '.join(failures)),
+    )
+
+
 def launch_setup(context, *args, **kwargs):
     pkg_share = get_package_share_directory('vacuum_driver')
     slam_share = get_package_share_directory('slam_toolbox')
@@ -68,7 +169,7 @@ def launch_setup(context, *args, **kwargs):
     arduino_port = LaunchConfiguration('arduino_port').perform(context)
     arduino_baudrate = int(LaunchConfiguration('arduino_baudrate').perform(context))
     lidar_port_arg = LaunchConfiguration('lidar_port').perform(context)
-    lidar_baudrate = int(LaunchConfiguration('lidar_baudrate').perform(context))
+    lidar_baudrate_arg = LaunchConfiguration('lidar_baudrate').perform(context)
     raw_scan_topic = LaunchConfiguration('raw_scan_topic').perform(context)
     scan_topic = LaunchConfiguration('scan_topic').perform(context)
 
@@ -92,6 +193,10 @@ def launch_setup(context, *args, **kwargs):
             )
     else:
         lidar_port = lidar_port_arg
+
+    lidar_baudrate, baudrate_log = _resolve_lidar_baudrate(lidar_port, lidar_baudrate_arg)
+    if baudrate_log:
+        actions.append(LogInfo(msg=baudrate_log))
 
     driver_node = Node(
         package='vacuum_driver',
@@ -246,7 +351,7 @@ def generate_launch_description():
             DeclareLaunchArgument('arduino_port', default_value='auto'),
             DeclareLaunchArgument('arduino_baudrate', default_value='115200'),
             DeclareLaunchArgument('lidar_port', default_value='auto'),
-            DeclareLaunchArgument('lidar_baudrate', default_value='115200'),
+            DeclareLaunchArgument('lidar_baudrate', default_value='auto'),
             DeclareLaunchArgument('raw_scan_topic', default_value='/scan/raw'),
             DeclareLaunchArgument('scan_topic', default_value='/scan'),
             DeclareLaunchArgument('slam_params', default_value=default_slam_params),
