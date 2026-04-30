@@ -127,10 +127,11 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('max_angular_speed', 0.80)
         self.declare_parameter('heading_kp', 1.85)
 
-        self.declare_parameter('front_stop_distance_m', 0.34)
-        self.declare_parameter('emergency_stop_distance_m', 0.22)
+        self.declare_parameter('front_stop_distance_m', 0.18)
+        self.declare_parameter('emergency_stop_distance_m', 0.10)
         self.declare_parameter('slowdown_distance_m', 0.75)
-        self.declare_parameter('side_clearance_m', 0.23)
+        self.declare_parameter('side_clearance_m', 0.10)
+        self.declare_parameter('front_block_heading_threshold_rad', 0.55)
         self.declare_parameter('scan_timeout_sec', 1.0)
 
         self.declare_parameter('stuck_timeout_sec', 5.0)
@@ -239,6 +240,11 @@ class AutonomousCleaningNode(Node):
             float(self.get_parameter('slowdown_distance_m').value),
         )
         self.side_clearance_m = max(0.05, float(self.get_parameter('side_clearance_m').value))
+        self.front_block_heading_threshold_rad = clamp(
+            float(self.get_parameter('front_block_heading_threshold_rad').value),
+            0.10,
+            1.40,
+        )
         self.scan_timeout_sec = max(0.1, float(self.get_parameter('scan_timeout_sec').value))
         self.scan_front_stop_distance_m = (
             self.front_stop_distance_m + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
@@ -976,7 +982,10 @@ class AutonomousCleaningNode(Node):
             self.target.world[1] - self.pose.y,
         )
 
-        if self.sectors.front < self.scan_front_stop_distance_m and abs(heading_error) < 1.7:
+        if (
+            self.sectors.front < self.scan_front_stop_distance_m
+            and abs(heading_error) < self.front_block_heading_threshold_rad
+        ):
             self._start_recovery('front blocked while following path')
             self._run_recovery(now)
             return
@@ -1014,12 +1023,17 @@ class AutonomousCleaningNode(Node):
         self.publish_cmd(linear, angular)
 
     def _side_clearance_correction(self) -> float:
-        correction = 0.0
+        left_pressure = 0.0
+        right_pressure = 0.0
         if self.sectors.left < self.scan_side_clearance_m:
-            correction -= 1.2 * (self.scan_side_clearance_m - self.sectors.left)
+            left_pressure = self.scan_side_clearance_m - self.sectors.left
         if self.sectors.right < self.scan_side_clearance_m:
-            correction += 1.2 * (self.scan_side_clearance_m - self.sectors.right)
-        return correction
+            right_pressure = self.scan_side_clearance_m - self.sectors.right
+
+        pressure_delta = right_pressure - left_pressure
+        if abs(pressure_delta) < 0.03:
+            return 0.0
+        return 0.65 * pressure_delta
 
     def _check_progress(self, now: float):
         if self.pose is None or self.target is None:
