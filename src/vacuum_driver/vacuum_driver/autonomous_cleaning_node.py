@@ -141,6 +141,7 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('backup_duration_sec', 0.75)
         self.declare_parameter('turn_duration_sec', 1.25)
         self.declare_parameter('backup_speed', 0.055)
+        self.declare_parameter('search_turn_speed', 0.28)
 
         self.map_topic = str(self.get_parameter('map_topic').value)
         self.scan_topic = str(self.get_parameter('scan_topic').value)
@@ -281,6 +282,11 @@ class AutonomousCleaningNode(Node):
         self.backup_duration_sec = max(0.1, float(self.get_parameter('backup_duration_sec').value))
         self.turn_duration_sec = max(0.2, float(self.get_parameter('turn_duration_sec').value))
         self.backup_speed = max(0.01, float(self.get_parameter('backup_speed').value))
+        self.search_turn_speed = clamp(
+            float(self.get_parameter('search_turn_speed').value),
+            0.05,
+            self.max_angular_speed,
+        )
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -338,6 +344,8 @@ class AutonomousCleaningNode(Node):
         self.recovery_until = 0.0
         self.recovery_turn_sign = 1.0
         self.recovery_reason = ''
+        self.searching_without_target = False
+        self.search_turn_sign = 1.0
 
         self.progress_anchor: Optional[Pose2D] = None
         self.progress_anchor_time = self.now_sec()
@@ -536,10 +544,15 @@ class AutonomousCleaningNode(Node):
 
         if self.target is None or not self.path_world:
             if self.phase == Phase.EXPLORE:
-                self.publish_cmd(0.0, 0.35 * self._best_turn_sign())
+                if not self.searching_without_target:
+                    self.searching_without_target = True
+                    self.search_turn_sign = self._best_turn_sign()
+                self.publish_cmd(0.0, self.search_turn_speed * self.search_turn_sign)
                 return
             self.stop_robot()
             return
+
+        self.searching_without_target = False
 
         if self._target_timed_out(now):
             self._blacklist_current_target(now, 'target timeout')
@@ -1018,7 +1031,8 @@ class AutonomousCleaningNode(Node):
 
             linear = clamp(linear, self.min_linear_speed, self.max_linear_speed)
 
-        angular += self._side_clearance_correction()
+        if linear > 0.01:
+            angular += self._side_clearance_correction()
         angular = clamp(angular, -self.max_angular_speed, self.max_angular_speed)
         self.publish_cmd(linear, angular)
 
