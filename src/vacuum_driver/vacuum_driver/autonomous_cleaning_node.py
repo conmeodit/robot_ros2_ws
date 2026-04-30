@@ -49,6 +49,7 @@ class RecoveryStage(Enum):
     NONE = 'none'
     BACKUP = 'backup'
     TURN = 'turn'
+    DRIVE_OUT = 'drive_out'
 
 
 @dataclass
@@ -101,6 +102,7 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('lidar_offset_x_m', -0.10)
         self.declare_parameter('lidar_offset_y_m', 0.0)
         self.declare_parameter('obstacle_threshold', 50)
+        self.declare_parameter('obstacle_min_cluster_size', 4)
         self.declare_parameter('frontier_min_cluster_size', 8)
         self.declare_parameter('frontier_relaxed_min_cluster_size', 3)
         self.declare_parameter('frontier_min_distance_m', 0.30)
@@ -109,6 +111,7 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('frontier_blacklist_timeout_sec', 35.0)
         self.declare_parameter('map_stable_duration_sec', 8.0)
         self.declare_parameter('exploration_settle_sec', 5.0)
+        self.declare_parameter('frontier_force_coverage_sec', 5.0)
         self.declare_parameter('map_stable_known_delta_cells', 12)
         self.declare_parameter('map_stable_origin_delta_m', 0.06)
 
@@ -140,8 +143,11 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('target_timeout_speed_factor', 3.2)
         self.declare_parameter('backup_duration_sec', 0.75)
         self.declare_parameter('turn_duration_sec', 1.25)
+        self.declare_parameter('escape_drive_duration_sec', 0.65)
+        self.declare_parameter('escape_drive_speed', 0.050)
         self.declare_parameter('backup_speed', 0.055)
         self.declare_parameter('search_turn_speed', 0.28)
+        self.declare_parameter('no_target_search_timeout_sec', 4.0)
 
         self.map_topic = str(self.get_parameter('map_topic').value)
         self.scan_topic = str(self.get_parameter('scan_topic').value)
@@ -172,6 +178,9 @@ class AutonomousCleaningNode(Node):
             else self.footprint_radius_m
         )
         self.obstacle_threshold = int(self.get_parameter('obstacle_threshold').value)
+        self.obstacle_min_cluster_size = max(
+            1, int(self.get_parameter('obstacle_min_cluster_size').value)
+        )
         self.frontier_min_cluster_size = max(
             1, int(self.get_parameter('frontier_min_cluster_size').value)
         )
@@ -195,6 +204,9 @@ class AutonomousCleaningNode(Node):
         )
         self.exploration_settle_sec = max(
             1.0, float(self.get_parameter('exploration_settle_sec').value)
+        )
+        self.frontier_force_coverage_sec = max(
+            1.0, float(self.get_parameter('frontier_force_coverage_sec').value)
         )
         self.map_stable_known_delta_cells = max(
             0, int(self.get_parameter('map_stable_known_delta_cells').value)
@@ -281,11 +293,18 @@ class AutonomousCleaningNode(Node):
         )
         self.backup_duration_sec = max(0.1, float(self.get_parameter('backup_duration_sec').value))
         self.turn_duration_sec = max(0.2, float(self.get_parameter('turn_duration_sec').value))
+        self.escape_drive_duration_sec = max(
+            0.1, float(self.get_parameter('escape_drive_duration_sec').value)
+        )
+        self.escape_drive_speed = max(0.01, float(self.get_parameter('escape_drive_speed').value))
         self.backup_speed = max(0.01, float(self.get_parameter('backup_speed').value))
         self.search_turn_speed = clamp(
             float(self.get_parameter('search_turn_speed').value),
             0.05,
             self.max_angular_speed,
+        )
+        self.no_target_search_timeout_sec = max(
+            1.0, float(self.get_parameter('no_target_search_timeout_sec').value)
         )
 
         self.tf_buffer = Buffer()
@@ -346,6 +365,7 @@ class AutonomousCleaningNode(Node):
         self.recovery_reason = ''
         self.searching_without_target = False
         self.search_turn_sign = 1.0
+        self.search_started_at = 0.0
 
         self.progress_anchor: Optional[Pose2D] = None
         self.progress_anchor_time = self.now_sec()
@@ -452,11 +472,13 @@ class AutonomousCleaningNode(Node):
         self.passable = bytearray(total)
         inflation_cells = int(math.ceil(self.robot_radius_m / max(self.resolution, 1e-6)))
 
-        obstacle_cells = []
+        obstacle_mask = bytearray(total)
         data = self.map_msg.data
         for index, value in enumerate(data):
             if int(value) >= self.obstacle_threshold:
-                obstacle_cells.append(index)
+                obstacle_mask[index] = 1
+
+        obstacle_cells = self._filtered_obstacle_cells(obstacle_mask)
 
         radius_sq = inflation_cells * inflation_cells
         for index in obstacle_cells:
@@ -478,6 +500,37 @@ class AutonomousCleaningNode(Node):
             cell_value = int(value)
             if 0 <= cell_value < self.obstacle_threshold and not self.inflated_obstacles[index]:
                 self.passable[index] = 1
+
+    def _filtered_obstacle_cells(self, obstacle_mask: bytearray) -> List[int]:
+        if self.obstacle_min_cluster_size <= 1:
+            return [index for index, value in enumerate(obstacle_mask) if value]
+
+        kept: List[int] = []
+        visited = bytearray(len(obstacle_mask))
+        for index, value in enumerate(obstacle_mask):
+            if not value or visited[index]:
+                continue
+
+            gx = index % self.width
+            gy = index // self.width
+            cluster = []
+            queue = deque([(gx, gy)])
+            visited[index] = 1
+
+            while queue:
+                cx, cy = queue.popleft()
+                cluster_index = self._index(cx, cy)
+                cluster.append(cluster_index)
+                for nx, ny in self._neighbors8(cx, cy):
+                    neighbor_index = self._index(nx, ny)
+                    if obstacle_mask[neighbor_index] and not visited[neighbor_index]:
+                        visited[neighbor_index] = 1
+                        queue.append((nx, ny))
+
+            if len(cluster) >= self.obstacle_min_cluster_size:
+                kept.extend(cluster)
+
+        return kept
 
     def _update_pose(self) -> bool:
         try:
@@ -547,6 +600,17 @@ class AutonomousCleaningNode(Node):
                 if not self.searching_without_target:
                     self.searching_without_target = True
                     self.search_turn_sign = self._best_turn_sign()
+                    self.search_started_at = now
+                if (now - self.search_started_at) >= self.no_target_search_timeout_sec:
+                    self.get_logger().warn(
+                        'No reachable frontier/path after search timeout. Switching to coverage fallback.'
+                    )
+                    self.phase = Phase.COVER
+                    self.no_frontier_since = None
+                    self.searching_without_target = False
+                    self._clear_navigation(keep_phase=True)
+                    self._ensure_target_and_path(now, force=True)
+                    return
                 self.publish_cmd(0.0, self.search_turn_speed * self.search_turn_sign)
                 return
             self.stop_robot()
@@ -636,15 +700,24 @@ class AutonomousCleaningNode(Node):
                 self.no_frontier_since = now
                 self.get_logger().info('No reachable frontier found; waiting for map to settle.')
 
-            if (
-                (now - self.no_frontier_since) >= self.exploration_settle_sec
+            no_frontier_elapsed = now - self.no_frontier_since
+            map_is_stable = (
+                no_frontier_elapsed >= self.exploration_settle_sec
                 and (now - self.known_stable_since) >= self.map_stable_duration_sec
                 and (now - self.geometry_stable_since) >= self.map_stable_duration_sec
-            ):
+            )
+            force_coverage = no_frontier_elapsed >= self.frontier_force_coverage_sec
+            if map_is_stable or force_coverage:
                 self.phase = Phase.COVER
                 self._clear_navigation(keep_phase=True)
                 self.last_coverage_goal = None
-                self.get_logger().info('Map is stable. Switching to coverage mode.')
+                if force_coverage and not map_is_stable:
+                    self.get_logger().warn(
+                        'Frontier search timed out before full map stability. '
+                        'Switching to coverage fallback.'
+                    )
+                else:
+                    self.get_logger().info('Map is stable. Switching to coverage mode.')
                 return self._select_coverage_target(start, now)
             return None
 
@@ -1109,6 +1182,16 @@ class AutonomousCleaningNode(Node):
         if self.recovery_stage == RecoveryStage.TURN:
             if now < self.recovery_until:
                 self.publish_cmd(0.0, self.recovery_turn_sign * 0.75 * self.max_angular_speed)
+                return
+            if self.sectors.front > self.scan_front_stop_distance_m:
+                self.recovery_stage = RecoveryStage.DRIVE_OUT
+                self.recovery_until = now + self.escape_drive_duration_sec
+            else:
+                self.recovery_until = now
+
+        if self.recovery_stage == RecoveryStage.DRIVE_OUT:
+            if now < self.recovery_until and self.sectors.front > self.scan_front_stop_distance_m:
+                self.publish_cmd(self.escape_drive_speed, 0.0)
                 return
 
         self.stop_robot()

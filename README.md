@@ -13,6 +13,8 @@ colcon build --symlink-install
 source install/setup.bash
 #automap
 cd ~/robot_ros2_ws
+git pull origin main 
+cd ~/robot_ros2_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash

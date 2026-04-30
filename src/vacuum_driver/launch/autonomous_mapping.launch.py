@@ -69,6 +69,7 @@ def generate_launch_description():
                 'footprint_padding_m': 0.03,
                 'lidar_offset_x_m': -0.10,
                 'lidar_offset_y_m': 0.0,
+                'obstacle_min_cluster_size': 4,
                 'front_stop_distance_m': 0.18,
                 'emergency_stop_distance_m': 0.10,
                 'side_clearance_m': 0.10,
@@ -81,6 +82,7 @@ def generate_launch_description():
                 'frontier_min_distance_m': 0.30,
                 'map_stable_duration_sec': 10.0,
                 'exploration_settle_sec': 7.0,
+                'frontier_force_coverage_sec': 5.0,
                 'map_stable_origin_delta_m': 0.05,
                 'coverage_spacing_m': 0.24,
                 'coverage_visited_radius_m': 0.24,
@@ -88,6 +90,10 @@ def generate_launch_description():
                 'coverage_switch_distance_weight': 0.12,
                 'stuck_timeout_sec': 5.0,
                 'stuck_min_progress_m': 0.08,
+                'no_target_search_timeout_sec': 4.0,
+                'escape_drive_duration_sec': 0.65,
+                'escape_drive_speed': 0.05,
+                'search_turn_speed': 0.28,
             }
         ],
     )
