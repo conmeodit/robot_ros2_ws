@@ -45,7 +45,7 @@ Default real hardware assumptions:
 - `real_driver` sends motor commands from `/cmd_vel` to Arduino and publishes encoder odometry on `/odom`.
 - Odometry is standardized to `wheel_radius=0.0425`, `wheel_separation=0.42`, `encoder_ticks_per_rev=1320.0`.
 - Encoder direction is auto-detected on the first small straight forward command. Disable `auto_detect_encoder_direction` only after confirming fixed encoder signs.
-- Do not run `robot_serial_bridge` at the same time as `vacuum_driver real_driver`; both own the Arduino serial link and `/odom` path.
+- Keep `real_driver` as the single owner of the Arduino serial link and `/odom` path.
 
 USB Arduino example:
 
@@ -63,6 +63,5 @@ Useful real data topics:
 
 RViz topics used by the autonomous node:
 
-- `robot_bringup/launch/laptop_monitor.launch.py` opens this package's `rviz/mapping.rviz`.
 - `/autonomy/path`: current A* path.
 - `/autonomy/markers`: robot body, footprint, target, frontier cells and visited cells.

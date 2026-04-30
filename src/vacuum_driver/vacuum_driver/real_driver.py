@@ -547,8 +547,7 @@ class RealHardwareDriver(Node):
                 self.unsupported_telemetry_warned = True
                 self.get_logger().warn(
                     'Unsupported Arduino STAT telemetry format. '
-                    'If this is from firmware/mega_motor_test, upload '
-                    'firmware/arduino_mega_base with ./upload_mega.sh; '
+                    'Upload firmware/arduino_mega_base with ./upload_mega.sh; '
                     'the ROS driver sends CMD_VEL and requires encoder telemetry.'
                 )
             return None
