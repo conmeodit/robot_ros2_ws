@@ -22,3 +22,12 @@ cd ~/robot_ros2_ws
 source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 rviz2 -d src/vacuum_driver/rviz/mapping.rviz
+
+
+ros2 run demo_nodes_cpp talker
+ros2 run demo_nodes_cpp listener
+
+sudo nmcli device wifi rescan
+nmcli device wifi list
+sudo nmcli device wifi connect "tk" password "mk"
+sudo nmcli connection delete "TÊN_WIFI_CŨ"

@@ -94,7 +94,12 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('replan_period_sec', 1.0)
         self.declare_parameter('tf_lookup_timeout_sec', 0.15)
 
-        self.declare_parameter('robot_radius_m', 0.26)
+        self.declare_parameter('robot_radius_m', 0.0)
+        self.declare_parameter('robot_length_m', 0.35)
+        self.declare_parameter('robot_width_m', 0.42)
+        self.declare_parameter('footprint_padding_m', 0.03)
+        self.declare_parameter('lidar_offset_x_m', -0.10)
+        self.declare_parameter('lidar_offset_y_m', 0.0)
         self.declare_parameter('obstacle_threshold', 50)
         self.declare_parameter('frontier_min_cluster_size', 8)
         self.declare_parameter('frontier_relaxed_min_cluster_size', 3)
@@ -150,7 +155,20 @@ class AutonomousCleaningNode(Node):
             0.01, float(self.get_parameter('tf_lookup_timeout_sec').value)
         )
 
-        self.robot_radius_m = max(0.05, float(self.get_parameter('robot_radius_m').value))
+        configured_robot_radius_m = float(self.get_parameter('robot_radius_m').value)
+        self.robot_length_m = max(0.05, float(self.get_parameter('robot_length_m').value))
+        self.robot_width_m = max(0.05, float(self.get_parameter('robot_width_m').value))
+        self.footprint_padding_m = max(0.0, float(self.get_parameter('footprint_padding_m').value))
+        self.lidar_offset_x_m = float(self.get_parameter('lidar_offset_x_m').value)
+        self.lidar_offset_y_m = float(self.get_parameter('lidar_offset_y_m').value)
+        self.footprint_half_x_m = 0.5 * self.robot_length_m + self.footprint_padding_m
+        self.footprint_half_y_m = 0.5 * self.robot_width_m + self.footprint_padding_m
+        self.footprint_radius_m = math.hypot(self.footprint_half_x_m, self.footprint_half_y_m)
+        self.robot_radius_m = (
+            max(0.05, configured_robot_radius_m)
+            if configured_robot_radius_m > 0.0
+            else self.footprint_radius_m
+        )
         self.obstacle_threshold = int(self.get_parameter('obstacle_threshold').value)
         self.frontier_min_cluster_size = max(
             1, int(self.get_parameter('frontier_min_cluster_size').value)
@@ -222,6 +240,27 @@ class AutonomousCleaningNode(Node):
         )
         self.side_clearance_m = max(0.05, float(self.get_parameter('side_clearance_m').value))
         self.scan_timeout_sec = max(0.1, float(self.get_parameter('scan_timeout_sec').value))
+        self.scan_front_stop_distance_m = (
+            self.front_stop_distance_m + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
+        )
+        self.scan_front_emergency_distance_m = (
+            self.emergency_stop_distance_m
+            + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
+        )
+        self.scan_front_slowdown_distance_m = (
+            self.slowdown_distance_m + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
+        )
+        self.scan_rear_stop_distance_m = (
+            self.front_stop_distance_m + max(0.0, self.footprint_half_x_m + self.lidar_offset_x_m)
+        )
+        self.scan_rear_emergency_distance_m = (
+            self.emergency_stop_distance_m
+            + max(0.0, self.footprint_half_x_m + self.lidar_offset_x_m)
+        )
+        self.scan_side_clearance_m = (
+            self.side_clearance_m
+            + max(0.0, self.footprint_half_y_m - abs(self.lidar_offset_y_m))
+        )
 
         self.stuck_timeout_sec = max(1.0, float(self.get_parameter('stuck_timeout_sec').value))
         self.stuck_min_progress_m = max(
@@ -303,7 +342,10 @@ class AutonomousCleaningNode(Node):
         self.get_logger().info(
             'Autonomous cleaning ready: '
             'frontier exploration -> visited-cell coverage, '
-            f'robot_radius={self.robot_radius_m:.2f}m, '
+            f'footprint={self.robot_length_m:.2f}x{self.robot_width_m:.2f}m '
+            f'pad={self.footprint_padding_m:.2f}m, '
+            f'inflation_radius={self.robot_radius_m:.2f}m, '
+            f'lidar_offset=({self.lidar_offset_x_m:.2f},{self.lidar_offset_y_m:.2f})m, '
             f'coverage_radius={self.coverage_visited_radius_m:.2f}m'
         )
 
@@ -468,7 +510,7 @@ class AutonomousCleaningNode(Node):
             self._run_recovery(now)
             return
 
-        if self.sectors.front < self.emergency_stop_distance_m:
+        if self.sectors.front < self.scan_front_emergency_distance_m:
             self._start_recovery('emergency front obstacle')
             self._run_recovery(now)
             return
@@ -934,7 +976,7 @@ class AutonomousCleaningNode(Node):
             self.target.world[1] - self.pose.y,
         )
 
-        if self.sectors.front < self.front_stop_distance_m and abs(heading_error) < 1.7:
+        if self.sectors.front < self.scan_front_stop_distance_m and abs(heading_error) < 1.7:
             self._start_recovery('front blocked while following path')
             self._run_recovery(now)
             return
@@ -953,10 +995,13 @@ class AutonomousCleaningNode(Node):
             if distance_to_goal < 0.55:
                 linear = min(linear, clamp(0.45 * distance_to_goal, self.min_linear_speed, linear))
 
-            if self.sectors.front < self.slowdown_distance_m:
+            if self.sectors.front < self.scan_front_slowdown_distance_m:
                 clearance_scale = clamp(
-                    (self.sectors.front - self.front_stop_distance_m)
-                    / max(self.slowdown_distance_m - self.front_stop_distance_m, 1e-6),
+                    (self.sectors.front - self.scan_front_stop_distance_m)
+                    / max(
+                        self.scan_front_slowdown_distance_m - self.scan_front_stop_distance_m,
+                        1e-6,
+                    ),
                     0.15,
                     1.0,
                 )
@@ -970,10 +1015,10 @@ class AutonomousCleaningNode(Node):
 
     def _side_clearance_correction(self) -> float:
         correction = 0.0
-        if self.sectors.left < self.side_clearance_m:
-            correction -= 1.2 * (self.side_clearance_m - self.sectors.left)
-        if self.sectors.right < self.side_clearance_m:
-            correction += 1.2 * (self.side_clearance_m - self.sectors.right)
+        if self.sectors.left < self.scan_side_clearance_m:
+            correction -= 1.2 * (self.scan_side_clearance_m - self.sectors.left)
+        if self.sectors.right < self.scan_side_clearance_m:
+            correction += 1.2 * (self.scan_side_clearance_m - self.sectors.right)
         return correction
 
     def _check_progress(self, now: float):
@@ -1016,7 +1061,7 @@ class AutonomousCleaningNode(Node):
         self.recovery_reason = reason
         self.recovery_turn_sign = self._best_turn_sign()
 
-        if self.sectors.rear > self.front_stop_distance_m:
+        if self.sectors.rear > self.scan_rear_stop_distance_m:
             self.recovery_stage = RecoveryStage.BACKUP
             self.recovery_until = now + self.backup_duration_sec
         else:
@@ -1027,7 +1072,7 @@ class AutonomousCleaningNode(Node):
 
     def _run_recovery(self, now: float):
         if self.recovery_stage == RecoveryStage.BACKUP:
-            if now < self.recovery_until and self.sectors.rear > self.emergency_stop_distance_m:
+            if now < self.recovery_until and self.sectors.rear > self.scan_rear_emergency_distance_m:
                 self.publish_cmd(-self.backup_speed, 0.30 * self.recovery_turn_sign)
                 return
             self.recovery_stage = RecoveryStage.TURN
@@ -1178,8 +1223,8 @@ class AutonomousCleaningNode(Node):
         body.pose.orientation.y = qy
         body.pose.orientation.z = qz
         body.pose.orientation.w = qw
-        body.scale.x = 0.35
-        body.scale.y = 0.42
+        body.scale.x = self.robot_length_m
+        body.scale.y = self.robot_width_m
         body.scale.z = 0.06
         self._set_color(body, 1.0, 0.55, 0.18, 0.95)
         markers.append(body)
@@ -1207,8 +1252,16 @@ class AutonomousCleaningNode(Node):
             self._set_color(wheel, 0.03, 0.03, 0.03, 1.0)
             markers.append(wheel)
 
-        lidar_x = self.pose.x + 0.10 * math.cos(self.pose.yaw)
-        lidar_y = self.pose.y + 0.10 * math.sin(self.pose.yaw)
+        lidar_x = (
+            self.pose.x
+            + self.lidar_offset_x_m * math.cos(self.pose.yaw)
+            - self.lidar_offset_y_m * math.sin(self.pose.yaw)
+        )
+        lidar_y = (
+            self.pose.y
+            + self.lidar_offset_x_m * math.sin(self.pose.yaw)
+            + self.lidar_offset_y_m * math.cos(self.pose.yaw)
+        )
         lidar = self._base_marker(6, Marker.CYLINDER, 'robot_model')
         lidar.pose.position.x = lidar_x
         lidar.pose.position.y = lidar_y
@@ -1222,8 +1275,8 @@ class AutonomousCleaningNode(Node):
         footprint = self._base_marker(7, Marker.LINE_STRIP, 'robot_model')
         footprint.scale.x = 0.025
         self._set_color(footprint, 0.0, 0.9, 0.8, 0.95)
-        half_x = 0.5 * 0.35 + 0.03
-        half_y = 0.5 * 0.42 + 0.03
+        half_x = self.footprint_half_x_m
+        half_y = self.footprint_half_y_m
         corners = [
             (half_x, half_y),
             (half_x, -half_y),
