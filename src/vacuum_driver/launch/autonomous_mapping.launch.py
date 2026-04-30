@@ -66,7 +66,7 @@ def generate_launch_description():
                 'robot_radius_m': 0.0,
                 'robot_length_m': 0.35,
                 'robot_width_m': 0.42,
-                'footprint_padding_m': 0.03,
+                'footprint_padding_m': 0.06,
                 'lidar_offset_x_m': -0.10,
                 'lidar_offset_y_m': 0.0,
                 'obstacle_min_cluster_size': 4,

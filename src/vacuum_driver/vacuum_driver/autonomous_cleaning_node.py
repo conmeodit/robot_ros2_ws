@@ -98,7 +98,7 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('robot_radius_m', 0.0)
         self.declare_parameter('robot_length_m', 0.35)
         self.declare_parameter('robot_width_m', 0.42)
-        self.declare_parameter('footprint_padding_m', 0.03)
+        self.declare_parameter('footprint_padding_m', 0.06)
         self.declare_parameter('lidar_offset_x_m', -0.10)
         self.declare_parameter('lidar_offset_y_m', 0.0)
         self.declare_parameter('obstacle_threshold', 50)
