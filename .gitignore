@@ -1,6 +1,12 @@
 build/
 install/
 log/
+src/vacuum_driver/build/
+src/vacuum_driver/install/
+src/vacuum_driver/log/
+src/vacuum_driver/__pycache__/
+src/vacuum_driver/launch/__pycache__/
+src/vacuum_driver/vacuum_driver/__pycache__/
 .vscode/
 *.pyc
 __pycache__/
