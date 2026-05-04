@@ -118,6 +118,26 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /autonomy/markers
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Vision Trash Markers
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /vision/trash_markers
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Vision Debug Image
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /vision/debug_image
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

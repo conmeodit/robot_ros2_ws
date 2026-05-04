@@ -37,6 +37,18 @@ Autonomous mapping and full reachable-area coverage:
 ros2 launch vacuum_driver autonomous_mapping.launch.py
 ```
 
+Autonomous mapping with YOLO trash obstacles from the downward camera:
+
+```bash
+ros2 launch vacuum_driver autonomous_mapping.launch.py use_vision:=true use_rviz:=true
+```
+
+Vision topics:
+
+- `/vision/debug_image`: camera image with YOLO bounding boxes for RViz Image display.
+- `/vision/trash_obstacles`: map-frame `PoseArray` consumed by autonomy as dynamic obstacles.
+- `/vision/trash_markers`: RViz markers for detected trash positions.
+
 Default real hardware assumptions:
 
 - Arduino Mega command/telemetry: `/dev/rfcomm0` at `9600`.

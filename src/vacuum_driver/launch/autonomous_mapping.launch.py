@@ -3,16 +3,21 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('vacuum_driver')
+    vision_share = get_package_share_directory('robot_vision')
     default_slam_params = os.path.join(pkg_share, 'config', 'slam.yaml')
     default_hardware_params = os.path.join(pkg_share, 'config', 'real_hardware.yaml')
     default_rviz_config = os.path.join(pkg_share, 'rviz', 'mapping.rviz')
+    default_vision_params = os.path.join(vision_share, 'config', 'vision.yaml')
+    default_vision_model = os.path.join(vision_share, 'models', 'best.pt')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -28,6 +33,11 @@ def generate_launch_description():
     slam_params = LaunchConfiguration('slam_params')
     hardware_params = LaunchConfiguration('hardware_params')
     rviz_config = LaunchConfiguration('rviz_config')
+    use_vision = LaunchConfiguration('use_vision')
+    vision_params = LaunchConfiguration('vision_params')
+    vision_model_path = LaunchConfiguration('vision_model_path')
+    camera_image_topic = LaunchConfiguration('camera_image_topic')
+    camera_info_topic = LaunchConfiguration('camera_info_topic')
 
     mapping_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -51,6 +61,20 @@ def generate_launch_description():
         }.items(),
     )
 
+    vision_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(vision_share, 'launch', 'detection.launch.py')
+        ),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'vision_params': vision_params,
+            'model_path': vision_model_path,
+            'image_topic': camera_image_topic,
+            'camera_info_topic': camera_info_topic,
+        }.items(),
+        condition=IfCondition(use_vision),
+    )
+
     autonomy_node = Node(
         package='vacuum_driver',
         executable='autonomous_cleaning_node',
@@ -61,6 +85,11 @@ def generate_launch_description():
                 'map_topic': '/map',
                 'scan_topic': scan_topic,
                 'cmd_vel_topic': '/cmd_vel',
+                'use_vision_obstacles': ParameterValue(use_vision, value_type=bool),
+                'vision_obstacles_topic': '/vision/trash_obstacles',
+                'vision_obstacle_ttl_sec': 8.0,
+                'vision_obstacle_radius_m': 0.12,
+                'vision_obstacle_min_confidence': 0.0,
                 'map_frame': 'map',
                 'base_frame': 'base_link',
                 'robot_radius_m': 0.0,
@@ -114,7 +143,13 @@ def generate_launch_description():
             DeclareLaunchArgument('slam_params', default_value=default_slam_params),
             DeclareLaunchArgument('hardware_params', default_value=default_hardware_params),
             DeclareLaunchArgument('rviz_config', default_value=default_rviz_config),
+            DeclareLaunchArgument('use_vision', default_value='false'),
+            DeclareLaunchArgument('vision_params', default_value=default_vision_params),
+            DeclareLaunchArgument('vision_model_path', default_value=default_vision_model),
+            DeclareLaunchArgument('camera_image_topic', default_value='/camera/image_raw'),
+            DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
             mapping_launch,
+            vision_launch,
             autonomy_node,
         ]
     )

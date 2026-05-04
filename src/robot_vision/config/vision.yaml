@@ -1,0 +1,40 @@
+robot_vision_node:
+  ros__parameters:
+    image_topic: /camera/image_raw
+    camera_info_topic: /camera/camera_info
+    debug_image_topic: /vision/debug_image
+    trash_obstacles_topic: /vision/trash_obstacles
+    trash_markers_topic: /vision/trash_markers
+    map_frame: map
+    base_frame: base_link
+
+    # Leave empty to use share/robot_vision/models/best.pt.
+    model_path: ''
+    confidence_threshold: 0.45
+    iou_threshold: 0.45
+    image_size: 640
+    device: ''
+    detection_rate_hz: 8.0
+
+    # center is better for top-down floor objects; use bottom_center for upright objects.
+    bbox_anchor: center
+
+    # Calibrate this homography from 4 measured floor points.
+    # It maps image pixel [u, v, 1] to floor [x, y, 1] in the camera ground frame, meters.
+    projection_method: homography
+    homography: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    camera_height_m: 1.0
+    camera_offset_x_m: 0.0
+    camera_offset_y_m: 0.0
+    camera_yaw_rad: 0.0
+
+    # Most custom trash YOLO models use class id 0. Set [] to filter only by class name.
+    trash_class_ids: [0]
+    trash_class_names: [trash, rac, garbage, waste]
+
+    tracker_min_hits: 2
+    tracker_max_missed: 3
+    tracker_iou_threshold: 0.25
+    tf_lookup_timeout_sec: 0.12
+    marker_scale_m: 0.16
+    publish_debug_image: true

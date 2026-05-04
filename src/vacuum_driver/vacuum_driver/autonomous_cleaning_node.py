@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import rclpy
-from geometry_msgs.msg import Point, PoseStamped, Twist
+from geometry_msgs.msg import Point, PoseArray, PoseStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -68,6 +68,14 @@ class Target:
 
 
 @dataclass
+class VisionObstacle:
+    x: float
+    y: float
+    confidence: float
+    expires_at: float
+
+
+@dataclass
 class ScanSectors:
     front: float = float('inf')
     front_left: float = float('inf')
@@ -88,6 +96,11 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('path_topic', '/autonomy/path')
         self.declare_parameter('marker_topic', '/autonomy/markers')
+        self.declare_parameter('use_vision_obstacles', False)
+        self.declare_parameter('vision_obstacles_topic', '/vision/trash_obstacles')
+        self.declare_parameter('vision_obstacle_ttl_sec', 8.0)
+        self.declare_parameter('vision_obstacle_radius_m', 0.12)
+        self.declare_parameter('vision_obstacle_min_confidence', 0.0)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_link')
 
@@ -154,6 +167,17 @@ class AutonomousCleaningNode(Node):
         self.cmd_vel_topic = str(self.get_parameter('cmd_vel_topic').value)
         self.path_topic = str(self.get_parameter('path_topic').value)
         self.marker_topic = str(self.get_parameter('marker_topic').value)
+        self.use_vision_obstacles = bool(self.get_parameter('use_vision_obstacles').value)
+        self.vision_obstacles_topic = str(self.get_parameter('vision_obstacles_topic').value)
+        self.vision_obstacle_ttl_sec = max(
+            0.5, float(self.get_parameter('vision_obstacle_ttl_sec').value)
+        )
+        self.vision_obstacle_radius_m = max(
+            0.02, float(self.get_parameter('vision_obstacle_radius_m').value)
+        )
+        self.vision_obstacle_min_confidence = max(
+            0.0, float(self.get_parameter('vision_obstacle_min_confidence').value)
+        )
         self.map_frame = str(self.get_parameter('map_frame').value)
         self.base_frame = str(self.get_parameter('base_frame').value)
 
@@ -310,8 +334,19 @@ class AutonomousCleaningNode(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
+        self.vision_obstacles: List[VisionObstacle] = []
+        self.last_vision_obstacle_log_time = 0.0
+
         self.map_sub = self.create_subscription(OccupancyGrid, self.map_topic, self.map_cb, 10)
         self.scan_sub = self.create_subscription(LaserScan, self.scan_topic, self.scan_cb, 20)
+        self.vision_obstacles_sub = None
+        if self.use_vision_obstacles:
+            self.vision_obstacles_sub = self.create_subscription(
+                PoseArray,
+                self.vision_obstacles_topic,
+                self.vision_obstacles_cb,
+                10,
+            )
         self.cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self.path_pub = self.create_publisher(Path, self.path_topic, 10)
         self.marker_pub = self.create_publisher(MarkerArray, self.marker_topic, 10)
@@ -380,7 +415,8 @@ class AutonomousCleaningNode(Node):
             f'pad={self.footprint_padding_m:.2f}m, '
             f'inflation_radius={self.robot_radius_m:.2f}m, '
             f'lidar_offset=({self.lidar_offset_x_m:.2f},{self.lidar_offset_y_m:.2f})m, '
-            f'coverage_radius={self.coverage_visited_radius_m:.2f}m'
+            f'coverage_radius={self.coverage_visited_radius_m:.2f}m, '
+            f'vision_obstacles={"on" if self.use_vision_obstacles else "off"}'
         )
 
     def now_sec(self) -> float:
@@ -433,6 +469,101 @@ class AutonomousCleaningNode(Node):
         )
         self.last_scan_time = self.now_sec()
 
+    def vision_obstacles_cb(self, msg: PoseArray):
+        if not self.use_vision_obstacles:
+            return
+
+        now = self.now_sec()
+        changed = self._expire_vision_obstacles(now)
+
+        frame_id = msg.header.frame_id.strip() if msg.header.frame_id else self.map_frame
+        if frame_id != self.map_frame:
+            self._log_vision_warning(
+                now,
+                f'Ignoring vision obstacles in frame "{frame_id}". Expected "{self.map_frame}".',
+            )
+            return
+
+        expires_at = now + self.vision_obstacle_ttl_sec
+        for pose in msg.poses:
+            confidence = float(pose.position.z)
+            if not math.isfinite(confidence):
+                confidence = 0.0
+            if confidence < self.vision_obstacle_min_confidence:
+                continue
+
+            x = float(pose.position.x)
+            y = float(pose.position.y)
+            if not math.isfinite(x) or not math.isfinite(y):
+                continue
+            changed = self._upsert_vision_obstacle(x, y, confidence, expires_at) or changed
+
+        if changed:
+            self._refresh_passability_for_vision_change()
+            if (now - self.last_vision_obstacle_log_time) > 2.0:
+                self.get_logger().info(
+                    f'Vision obstacles active: {len(self.vision_obstacles)} '
+                    f'(ttl={self.vision_obstacle_ttl_sec:.1f}s)'
+                )
+                self.last_vision_obstacle_log_time = now
+
+    def _upsert_vision_obstacle(
+        self,
+        x: float,
+        y: float,
+        confidence: float,
+        expires_at: float,
+    ) -> bool:
+        merge_radius = max(self.vision_obstacle_radius_m, 0.05)
+        nearest = None
+        nearest_distance = float('inf')
+        for index, obstacle in enumerate(self.vision_obstacles):
+            distance = math.hypot(obstacle.x - x, obstacle.y - y)
+            if distance < nearest_distance:
+                nearest = index
+                nearest_distance = distance
+
+        if nearest is not None and nearest_distance <= merge_radius:
+            obstacle = self.vision_obstacles[nearest]
+            changed = nearest_distance > max(0.03, 0.5 * self.resolution)
+            obstacle.x = 0.65 * obstacle.x + 0.35 * x
+            obstacle.y = 0.65 * obstacle.y + 0.35 * y
+            obstacle.confidence = max(obstacle.confidence, confidence)
+            obstacle.expires_at = max(obstacle.expires_at, expires_at)
+            return changed
+
+        self.vision_obstacles.append(
+            VisionObstacle(
+                x=x,
+                y=y,
+                confidence=confidence,
+                expires_at=expires_at,
+            )
+        )
+        return True
+
+    def _expire_vision_obstacles(self, now: float) -> bool:
+        if not self.vision_obstacles:
+            return False
+        active = [obstacle for obstacle in self.vision_obstacles if obstacle.expires_at > now]
+        changed = len(active) != len(self.vision_obstacles)
+        self.vision_obstacles = active
+        return changed
+
+    def _refresh_passability_for_vision_change(self):
+        if self.map_msg is None or self.width <= 0 or self.height <= 0:
+            return
+        self._build_passability()
+        self._filter_spatial_state()
+        self.map_version += 1
+        self.last_replan_time = 0.0
+
+    def _log_vision_warning(self, now: float, message: str):
+        if (now - self.last_vision_obstacle_log_time) < 2.0:
+            return
+        self.last_vision_obstacle_log_time = now
+        self.get_logger().warn(message)
+
     def _sector_min(self, msg: LaserScan, start_deg: float, end_deg: float) -> float:
         if msg.angle_increment == 0.0 or len(msg.ranges) == 0:
             return float('inf')
@@ -478,6 +609,7 @@ class AutonomousCleaningNode(Node):
             if int(value) >= self.obstacle_threshold:
                 obstacle_mask[index] = 1
 
+        self._add_vision_obstacles_to_mask(obstacle_mask)
         obstacle_cells = self._filtered_obstacle_cells(obstacle_mask)
 
         radius_sq = inflation_cells * inflation_cells
@@ -500,6 +632,36 @@ class AutonomousCleaningNode(Node):
             cell_value = int(value)
             if 0 <= cell_value < self.obstacle_threshold and not self.inflated_obstacles[index]:
                 self.passable[index] = 1
+
+    def _add_vision_obstacles_to_mask(self, obstacle_mask: bytearray):
+        if not self.use_vision_obstacles or not self.vision_obstacles:
+            return
+
+        now = self.now_sec()
+        radius_cells = max(
+            1,
+            int(math.ceil(self.vision_obstacle_radius_m / max(self.resolution, 1e-6))),
+        )
+        radius_sq = radius_cells * radius_cells
+
+        for obstacle in self.vision_obstacles:
+            if obstacle.expires_at <= now:
+                continue
+            grid = self.world_to_grid(obstacle.x, obstacle.y)
+            if grid is None:
+                continue
+            cx, cy = grid
+            for dy in range(-radius_cells, radius_cells + 1):
+                gy = cy + dy
+                if gy < 0 or gy >= self.height:
+                    continue
+                for dx in range(-radius_cells, radius_cells + 1):
+                    if (dx * dx + dy * dy) > radius_sq:
+                        continue
+                    gx = cx + dx
+                    if gx < 0 or gx >= self.width:
+                        continue
+                    obstacle_mask[self._index(gx, gy)] = 1
 
     def _filtered_obstacle_cells(self, obstacle_mask: bytearray) -> List[int]:
         if self.obstacle_min_cluster_size <= 1:
@@ -563,6 +725,8 @@ class AutonomousCleaningNode(Node):
         if self.map_msg is None or not self.passable:
             self.stop_robot()
             return
+        if self.use_vision_obstacles and self._expire_vision_obstacles(now):
+            self._refresh_passability_for_vision_change()
         if not self._update_pose() or self.pose is None:
             self.stop_robot()
             return
@@ -1305,6 +1469,7 @@ class AutonomousCleaningNode(Node):
         marker_array.markers.append(self._target_marker())
         marker_array.markers.append(self._visited_marker())
         marker_array.markers.append(self._frontier_marker())
+        marker_array.markers.append(self._vision_obstacle_marker())
         marker_array.markers.append(self._status_marker())
         self.marker_pub.publish(marker_array)
 
@@ -1455,6 +1620,28 @@ class AutonomousCleaningNode(Node):
             point.x = wx
             point.y = wy
             point.z = 0.035
+            marker.points.append(point)
+        return marker
+
+    def _vision_obstacle_marker(self) -> Marker:
+        marker = self._base_marker(45, Marker.SPHERE_LIST, 'vision_obstacles')
+        marker.scale.x = 2.0 * self.vision_obstacle_radius_m
+        marker.scale.y = 2.0 * self.vision_obstacle_radius_m
+        marker.scale.z = 0.08
+        self._set_color(marker, 1.0, 0.08, 0.02, 0.75)
+
+        if not self.use_vision_obstacles or not self.vision_obstacles:
+            marker.action = Marker.DELETE
+            return marker
+
+        now = self.now_sec()
+        for obstacle in self.vision_obstacles:
+            if obstacle.expires_at <= now:
+                continue
+            point = Point()
+            point.x = obstacle.x
+            point.y = obstacle.y
+            point.z = 0.06
             marker.points.append(point)
         return marker
 
