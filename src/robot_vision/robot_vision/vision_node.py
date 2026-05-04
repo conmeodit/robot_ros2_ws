@@ -313,6 +313,7 @@ class RobotVisionNode(Node):
 
     def _lookup_base_to_map(self, stamp_msg):
         stamp = Time.from_msg(stamp_msg)
+        using_latest = stamp.nanoseconds == 0
         if stamp.nanoseconds == 0:
             stamp = Time()
         try:
@@ -323,6 +324,26 @@ class RobotVisionNode(Node):
                 timeout=Duration(seconds=self.tf_lookup_timeout_sec),
             )
         except TransformException as exc:
+            if not using_latest:
+                try:
+                    transform = self.tf_buffer.lookup_transform(
+                        self.map_frame,
+                        self.base_frame,
+                        Time(),
+                        timeout=Duration(seconds=self.tf_lookup_timeout_sec),
+                    )
+                    self._warn_throttled(
+                        f'Using latest TF {self.map_frame}->{self.base_frame} because '
+                        f'image-stamped lookup failed: {exc}'
+                    )
+                    return transform
+                except TransformException as latest_exc:
+                    self._warn_throttled(
+                        f'Waiting for TF {self.map_frame}->{self.base_frame}: {exc}; '
+                        f'latest lookup also failed: {latest_exc}'
+                    )
+                    return None
+
             self._warn_throttled(f'Waiting for TF {self.map_frame}->{self.base_frame}: {exc}')
             return None
 
