@@ -43,6 +43,9 @@ Autonomous mapping with YOLO trash obstacles from the downward camera:
 ros2 launch vacuum_driver autonomous_mapping.launch.py use_vision:=true use_rviz:=true
 ```
 
+With `use_vision:=true`, the launch starts `v4l2_camera` from `/dev/video0` by default and remaps it to `/camera/image_raw` and `/camera/camera_info`.
+Use another camera device with `camera_device:=/dev/video2`, or disable the camera driver with `use_camera:=false` if another node already publishes the camera topics.
+
 Vision topics:
 
 - `/vision/debug_image`: camera image with YOLO bounding boxes for RViz Image display.

@@ -5,7 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -34,8 +34,11 @@ def generate_launch_description():
     hardware_params = LaunchConfiguration('hardware_params')
     rviz_config = LaunchConfiguration('rviz_config')
     use_vision = LaunchConfiguration('use_vision')
+    use_camera = LaunchConfiguration('use_camera')
     vision_params = LaunchConfiguration('vision_params')
     vision_model_path = LaunchConfiguration('vision_model_path')
+    camera_device = LaunchConfiguration('camera_device')
+    camera_frame_id = LaunchConfiguration('camera_frame_id')
     camera_image_topic = LaunchConfiguration('camera_image_topic')
     camera_info_topic = LaunchConfiguration('camera_info_topic')
 
@@ -73,6 +76,36 @@ def generate_launch_description():
             'camera_info_topic': camera_info_topic,
         }.items(),
         condition=IfCondition(use_vision),
+    )
+
+    camera_node = Node(
+        package='v4l2_camera',
+        executable='v4l2_camera_node',
+        name='downward_camera',
+        output='screen',
+        parameters=[
+            {
+                'video_device': camera_device,
+                'camera_frame_id': camera_frame_id,
+            }
+        ],
+        remappings=[
+            ('image_raw', camera_image_topic),
+            ('camera_info', camera_info_topic),
+        ],
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    use_camera,
+                    "'.lower() == 'true' or ('",
+                    use_camera,
+                    "'.lower() == 'auto' and '",
+                    use_vision,
+                    "'.lower() == 'true')",
+                ]
+            )
+        ),
     )
 
     autonomy_node = Node(
@@ -144,11 +177,15 @@ def generate_launch_description():
             DeclareLaunchArgument('hardware_params', default_value=default_hardware_params),
             DeclareLaunchArgument('rviz_config', default_value=default_rviz_config),
             DeclareLaunchArgument('use_vision', default_value='false'),
+            DeclareLaunchArgument('use_camera', default_value='auto'),
+            DeclareLaunchArgument('camera_device', default_value='/dev/video0'),
+            DeclareLaunchArgument('camera_frame_id', default_value='camera_link'),
             DeclareLaunchArgument('vision_params', default_value=default_vision_params),
             DeclareLaunchArgument('vision_model_path', default_value=default_vision_model),
             DeclareLaunchArgument('camera_image_topic', default_value='/camera/image_raw'),
             DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
             mapping_launch,
+            camera_node,
             vision_launch,
             autonomy_node,
         ]
