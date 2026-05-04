@@ -41,3 +41,6 @@ sudo nmcli device wifi rescan
 nmcli device wifi list
 sudo nmcli device wifi connect "tk" password "mk"
 sudo nmcli connection delete "TÊN_WIFI_CŨ"
+
+
+'vision_obstacle_ttl_sec': 8.0,

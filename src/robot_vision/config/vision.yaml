@@ -19,13 +19,16 @@ robot_vision_node:
     # center is better for top-down floor objects; use bottom_center for upright objects.
     bbox_anchor: center
 
-    # Calibrate this homography from 4 measured floor points.
+    # Initial 640x480 top-down calibration from measured camera footprint:
+    # - image top is robot front
+    # - image left is robot left
+    # - floor span is 0.42m front/back and 0.55m left/right
     # It maps image pixel [u, v, 1] to floor [x, y, 1] in the camera ground frame, meters.
     projection_method: homography
-    homography: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    camera_height_m: 1.0
-    camera_offset_x_m: 0.0
-    camera_offset_y_m: 0.0
+    homography: [0.0, -0.000875, 0.21, -0.000859375, 0.0, 0.275, 0.0, 0.0, 1.0]
+    camera_height_m: 0.395
+    camera_offset_x_m: 0.355
+    camera_offset_y_m: 0.105
     camera_yaw_rad: 0.0
 
     # Most custom trash YOLO models use class id 0. Set [] to filter only by class name.

@@ -87,6 +87,7 @@ def generate_launch_description():
             {
                 'video_device': camera_device,
                 'camera_frame_id': camera_frame_id,
+                'image_size': [640, 480],
             }
         ],
         remappings=[
