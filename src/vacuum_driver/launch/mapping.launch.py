@@ -224,8 +224,8 @@ def launch_setup(context, *args, **kwargs):
                 'encoder_ticks_per_rev': 1320.0,
                 'auto_detect_encoder_direction': True,
                 'encoder_direction_min_delta_ticks': 3,
-                'max_linear_speed_mps': 0.16,
-                'max_angular_speed_radps': 0.85,
+                'max_linear_speed_mps': 0.08,
+                'max_angular_speed_radps': 0.425,
             },
         ],
     )
