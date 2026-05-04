@@ -5,7 +5,7 @@ from typing import List, Optional, Sequence, Set, Tuple
 
 import rclpy
 from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
-from geometry_msgs.msg import Pose, PoseArray
+from geometry_msgs.msg import Point, Pose, PoseArray
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -227,17 +227,19 @@ class RobotVisionNode(Node):
             self._warn_throttled(f'Failed to convert camera image: {exc}')
             return
 
+        transform = self._lookup_base_to_map(msg.header.stamp)
+
         detections: List[Detection] = []
         if self.model_ready and self.model is not None:
-            detections = self._detect_trash(msg, image)
+            detections = self._detect_trash(image, transform)
         stable_detections = self.tracker.update(detections)
 
         self._publish_obstacles(msg.header.stamp, stable_detections)
-        self._publish_markers(msg.header.stamp, stable_detections)
+        self._publish_markers(msg, stable_detections, transform)
         if self.publish_debug_image:
             self._publish_debug_image(msg, image, detections, stable_detections)
 
-    def _detect_trash(self, msg: Image, image) -> List[Detection]:
+    def _detect_trash(self, image, transform) -> List[Detection]:
         predict_kwargs = {
             'source': image,
             'imgsz': self.image_size,
@@ -257,7 +259,6 @@ class RobotVisionNode(Node):
         if not results:
             return []
 
-        transform = self._lookup_base_to_map(msg.header.stamp)
         detections: List[Detection] = []
         result = results[0]
         boxes = getattr(result, 'boxes', None)
@@ -370,7 +371,8 @@ class RobotVisionNode(Node):
 
         self.obstacles_pub.publish(pose_array)
 
-    def _publish_markers(self, stamp_msg, detections: Sequence[Detection]):
+    def _publish_markers(self, image_msg: Image, detections: Sequence[Detection], transform):
+        stamp_msg = image_msg.header.stamp
         marker_array = MarkerArray()
         delete_marker = Marker()
         delete_marker.header.frame_id = self.map_frame
@@ -381,6 +383,11 @@ class RobotVisionNode(Node):
         marker_array.markers.append(delete_marker)
 
         marker_id = 1
+        camera_fov_marker = self._camera_fov_marker(image_msg, transform, marker_id)
+        if camera_fov_marker is not None:
+            marker_array.markers.append(camera_fov_marker)
+            marker_id += 1
+
         for detection in detections:
             if detection.map_xy is None:
                 continue
@@ -413,6 +420,40 @@ class RobotVisionNode(Node):
             marker_array.markers.append(label)
 
         self.marker_pub.publish(marker_array)
+
+    def _camera_fov_marker(self, image_msg: Image, transform, marker_id: int) -> Optional[Marker]:
+        if transform is None or image_msg.width <= 0 or image_msg.height <= 0:
+            return None
+
+        max_u = float(max(0, image_msg.width - 1))
+        max_v = float(max(0, image_msg.height - 1))
+        corners_px = [
+            (0.0, 0.0),
+            (max_u, 0.0),
+            (max_u, max_v),
+            (0.0, max_v),
+            (0.0, 0.0),
+        ]
+
+        marker = self._base_marker(marker_id, Marker.LINE_STRIP, image_msg.header.stamp)
+        marker.scale.x = 0.025
+        marker.color.r = 0.0
+        marker.color.g = 0.85
+        marker.color.b = 1.0
+        marker.color.a = 0.90
+
+        for u, v in corners_px:
+            base_xy = self.projector.project_pixel(u, v)
+            if base_xy is None:
+                return None
+            map_xy = self._transform_base_to_map(base_xy[0], base_xy[1], transform)
+            point = Point()
+            point.x = float(map_xy[0])
+            point.y = float(map_xy[1])
+            point.z = 0.035
+            marker.points.append(point)
+
+        return marker
 
     def _base_marker(self, marker_id: int, marker_type: int, stamp_msg) -> Marker:
         marker = Marker()

@@ -14,7 +14,7 @@ robot_vision_node:
     iou_threshold: 0.45
     image_size: 640
     device: ''
-    detection_rate_hz: 8.0
+    detection_rate_hz: 20.0
 
     # center is better for top-down floor objects; use bottom_center for upright objects.
     bbox_anchor: center
