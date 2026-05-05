@@ -110,6 +110,7 @@ class RobotVisionNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.last_inference_time = 0.0
         self.last_warning_time = 0.0
+        self.last_camera_fov_points: List[Point] = []
 
         self.bridge = None
         self.cv2 = None
@@ -422,8 +423,10 @@ class RobotVisionNode(Node):
         self.marker_pub.publish(marker_array)
 
     def _camera_fov_marker(self, image_msg: Image, transform, marker_id: int) -> Optional[Marker]:
-        if transform is None or image_msg.width <= 0 or image_msg.height <= 0:
+        if image_msg.width <= 0 or image_msg.height <= 0:
             return None
+        if transform is None:
+            return self._cached_camera_fov_marker(marker_id, image_msg.header.stamp)
 
         max_u = float(max(0, image_msg.width - 1))
         max_v = float(max(0, image_msg.height - 1))
@@ -435,24 +438,46 @@ class RobotVisionNode(Node):
             (0.0, 0.0),
         ]
 
-        marker = self._base_marker(marker_id, Marker.LINE_STRIP, image_msg.header.stamp)
-        marker.scale.x = 0.025
-        marker.color.r = 0.0
-        marker.color.g = 0.85
-        marker.color.b = 1.0
-        marker.color.a = 0.90
+        marker = self._new_camera_fov_marker(marker_id, image_msg.header.stamp)
+        points: List[Point] = []
 
         for u, v in corners_px:
             base_xy = self.projector.project_pixel(u, v)
             if base_xy is None:
-                return None
+                return self._cached_camera_fov_marker(marker_id, image_msg.header.stamp)
             map_xy = self._transform_base_to_map(base_xy[0], base_xy[1], transform)
             point = Point()
             point.x = float(map_xy[0])
             point.y = float(map_xy[1])
             point.z = 0.035
-            marker.points.append(point)
+            points.append(point)
 
+        marker.points = points
+        self.last_camera_fov_points = points
+        return marker
+
+    def _cached_camera_fov_marker(self, marker_id: int, stamp_msg) -> Optional[Marker]:
+        if not self.last_camera_fov_points:
+            return None
+
+        marker = self._new_camera_fov_marker(marker_id, stamp_msg)
+        points: List[Point] = []
+        for cached_point in self.last_camera_fov_points:
+            point = Point()
+            point.x = cached_point.x
+            point.y = cached_point.y
+            point.z = cached_point.z
+            points.append(point)
+        marker.points = points
+        return marker
+
+    def _new_camera_fov_marker(self, marker_id: int, stamp_msg) -> Marker:
+        marker = self._base_marker(marker_id, Marker.LINE_STRIP, stamp_msg)
+        marker.scale.x = 0.025
+        marker.color.r = 0.0
+        marker.color.g = 0.85
+        marker.color.b = 1.0
+        marker.color.a = 0.90
         return marker
 
     def _base_marker(self, marker_id: int, marker_type: int, stamp_msg) -> Marker:
@@ -464,7 +489,8 @@ class RobotVisionNode(Node):
         marker.type = marker_type
         marker.action = Marker.ADD
         marker.pose.orientation.w = 1.0
-        marker.lifetime.sec = 1
+        marker.lifetime.sec = 0
+        marker.lifetime.nanosec = 0
         return marker
 
     def _publish_debug_image(
@@ -475,28 +501,18 @@ class RobotVisionNode(Node):
         stable_detections: Sequence[Detection],
     ):
         debug = image.copy()
+        self._draw_camera_view_box(debug)
         stable_boxes = {tuple(detection.bbox) for detection in stable_detections}
+        current_boxes = {tuple(detection.bbox) for detection in detections}
+
+        for detection in stable_detections:
+            if tuple(detection.bbox) not in current_boxes:
+                self._draw_detection(debug, detection, (0, 160, 0), held=True)
 
         for detection in detections:
-            x0, y0, x1, y1 = [int(round(value)) for value in detection.bbox]
             stable = tuple(detection.bbox) in stable_boxes
             color = (0, 255, 0) if stable else (0, 180, 255)
-            self.cv2.rectangle(debug, (x0, y0), (x1, y1), color, 2)
-            ax, ay = [int(round(value)) for value in detection.anchor_pixel]
-            self.cv2.circle(debug, (ax, ay), 4, color, -1)
-            label = f'{detection.class_name} {detection.confidence:.2f}'
-            if detection.map_xy is None:
-                label += ' no-map'
-            self.cv2.putText(
-                debug,
-                label,
-                (x0, max(18, y0 - 6)),
-                self.cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                color,
-                2,
-                self.cv2.LINE_AA,
-            )
+            self._draw_detection(debug, detection, color, held=False)
 
         try:
             debug_msg = self.bridge.cv2_to_imgmsg(debug, encoding='bgr8')
@@ -505,6 +521,44 @@ class RobotVisionNode(Node):
             return
         debug_msg.header = msg.header
         self.debug_pub.publish(debug_msg)
+
+    def _draw_camera_view_box(self, image):
+        height, width = image.shape[:2]
+        if width < 4 or height < 4:
+            return
+        self.cv2.rectangle(image, (2, 2), (width - 3, height - 3), (255, 255, 0), 2)
+
+    def _draw_detection(self, image, detection: Detection, color, *, held: bool):
+        height, width = image.shape[:2]
+        x0, y0, x1, y1 = [int(round(value)) for value in detection.bbox]
+        x0 = max(0, min(width - 1, x0))
+        x1 = max(0, min(width - 1, x1))
+        y0 = max(0, min(height - 1, y0))
+        y1 = max(0, min(height - 1, y1))
+        if x1 <= x0 or y1 <= y0:
+            return
+
+        thickness = 1 if held else 2
+        self.cv2.rectangle(image, (x0, y0), (x1, y1), color, thickness)
+        ax, ay = [int(round(value)) for value in detection.anchor_pixel]
+        if 0 <= ax < width and 0 <= ay < height:
+            self.cv2.circle(image, (ax, ay), 4, color, -1)
+
+        label = f'{detection.class_name} {detection.confidence:.2f}'
+        if held:
+            label += ' hold'
+        if detection.map_xy is None:
+            label += ' no-map'
+        self.cv2.putText(
+            image,
+            label,
+            (x0, max(18, y0 - 6)),
+            self.cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            2,
+            self.cv2.LINE_AA,
+        )
 
     def _warn_throttled(self, message: str):
         now = self.now_sec()

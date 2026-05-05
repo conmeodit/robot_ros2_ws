@@ -78,7 +78,7 @@ class DetectionTracker:
             if track_index in assigned_tracks or detection_index in assigned_detections:
                 continue
             track = self.tracks[track_index]
-            track.detection = detections[detection_index]
+            track.detection = self._merge_detection(track.detection, detections[detection_index])
             track.hits += 1
             track.missed = 0
             assigned_tracks.add(track_index)
@@ -99,10 +99,22 @@ class DetectionTracker:
         return [
             track.detection
             for track in self.tracks
-            if track.hits >= self.min_hits and track.missed == 0
+            if track.hits >= self.min_hits and track.missed <= self.max_missed
         ]
 
     def _mark_all_missed(self):
         for track in self.tracks:
             track.missed += 1
         self.tracks = [track for track in self.tracks if track.missed <= self.max_missed]
+
+    @staticmethod
+    def _merge_detection(previous: Detection, current: Detection) -> Detection:
+        return Detection(
+            bbox=current.bbox,
+            confidence=current.confidence,
+            class_id=current.class_id,
+            class_name=current.class_name,
+            anchor_pixel=current.anchor_pixel,
+            base_xy=current.base_xy if current.base_xy is not None else previous.base_xy,
+            map_xy=current.map_xy if current.map_xy is not None else previous.map_xy,
+        )

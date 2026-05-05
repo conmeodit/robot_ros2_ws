@@ -44,3 +44,9 @@ sudo nmcli connection delete "TÊN_WIFI_CŨ"
 
 
 'vision_obstacle_ttl_sec': 8.0,
+
+git reset --hard cfd3405b96226e4568b6eb3f2811f1841827e84a
+git push --force-with-lease origin main
+
+git fetch origin
+git reset --hard origin/main
