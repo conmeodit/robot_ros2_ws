@@ -111,6 +111,7 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('robot_radius_m', 0.0)
         self.declare_parameter('robot_length_m', 0.35)
         self.declare_parameter('robot_width_m', 0.42)
+        self.declare_parameter('camera_front_overhang_m', 0.0)
         self.declare_parameter('footprint_padding_m', 0.06)
         self.declare_parameter('lidar_offset_x_m', -0.10)
         self.declare_parameter('lidar_offset_y_m', 0.0)
@@ -147,6 +148,8 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('emergency_stop_distance_m', 0.10)
         self.declare_parameter('slowdown_distance_m', 0.75)
         self.declare_parameter('side_clearance_m', 0.10)
+        self.declare_parameter('side_clearance_gain', 0.65)
+        self.declare_parameter('side_clearance_deadband_m', 0.03)
         self.declare_parameter('front_block_heading_threshold_rad', 0.55)
         self.declare_parameter('scan_timeout_sec', 1.0)
 
@@ -190,12 +193,23 @@ class AutonomousCleaningNode(Node):
         configured_robot_radius_m = float(self.get_parameter('robot_radius_m').value)
         self.robot_length_m = max(0.05, float(self.get_parameter('robot_length_m').value))
         self.robot_width_m = max(0.05, float(self.get_parameter('robot_width_m').value))
+        self.camera_front_overhang_m = max(
+            0.0, float(self.get_parameter('camera_front_overhang_m').value)
+        )
         self.footprint_padding_m = max(0.0, float(self.get_parameter('footprint_padding_m').value))
         self.lidar_offset_x_m = float(self.get_parameter('lidar_offset_x_m').value)
         self.lidar_offset_y_m = float(self.get_parameter('lidar_offset_y_m').value)
-        self.footprint_half_x_m = 0.5 * self.robot_length_m + self.footprint_padding_m
+        self.footprint_front_x_m = (
+            0.5 * self.robot_length_m
+            + self.camera_front_overhang_m
+            + self.footprint_padding_m
+        )
+        self.footprint_rear_x_m = 0.5 * self.robot_length_m + self.footprint_padding_m
         self.footprint_half_y_m = 0.5 * self.robot_width_m + self.footprint_padding_m
-        self.footprint_radius_m = math.hypot(self.footprint_half_x_m, self.footprint_half_y_m)
+        self.footprint_radius_m = max(
+            math.hypot(self.footprint_front_x_m, self.footprint_half_y_m),
+            math.hypot(self.footprint_rear_x_m, self.footprint_half_y_m),
+        )
         self.robot_radius_m = (
             max(0.05, configured_robot_radius_m)
             if configured_robot_radius_m > 0.0
@@ -277,6 +291,12 @@ class AutonomousCleaningNode(Node):
             float(self.get_parameter('slowdown_distance_m').value),
         )
         self.side_clearance_m = max(0.05, float(self.get_parameter('side_clearance_m').value))
+        self.side_clearance_gain = max(
+            0.0, float(self.get_parameter('side_clearance_gain').value)
+        )
+        self.side_clearance_deadband_m = max(
+            0.0, float(self.get_parameter('side_clearance_deadband_m').value)
+        )
         self.front_block_heading_threshold_rad = clamp(
             float(self.get_parameter('front_block_heading_threshold_rad').value),
             0.10,
@@ -284,21 +304,21 @@ class AutonomousCleaningNode(Node):
         )
         self.scan_timeout_sec = max(0.1, float(self.get_parameter('scan_timeout_sec').value))
         self.scan_front_stop_distance_m = (
-            self.front_stop_distance_m + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
+            self.front_stop_distance_m + max(0.0, self.footprint_front_x_m - self.lidar_offset_x_m)
         )
         self.scan_front_emergency_distance_m = (
             self.emergency_stop_distance_m
-            + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
+            + max(0.0, self.footprint_front_x_m - self.lidar_offset_x_m)
         )
         self.scan_front_slowdown_distance_m = (
-            self.slowdown_distance_m + max(0.0, self.footprint_half_x_m - self.lidar_offset_x_m)
+            self.slowdown_distance_m + max(0.0, self.footprint_front_x_m - self.lidar_offset_x_m)
         )
         self.scan_rear_stop_distance_m = (
-            self.front_stop_distance_m + max(0.0, self.footprint_half_x_m + self.lidar_offset_x_m)
+            self.front_stop_distance_m + max(0.0, self.footprint_rear_x_m + self.lidar_offset_x_m)
         )
         self.scan_rear_emergency_distance_m = (
             self.emergency_stop_distance_m
-            + max(0.0, self.footprint_half_x_m + self.lidar_offset_x_m)
+            + max(0.0, self.footprint_rear_x_m + self.lidar_offset_x_m)
         )
         self.scan_side_clearance_m = (
             self.side_clearance_m
@@ -412,6 +432,7 @@ class AutonomousCleaningNode(Node):
             'Autonomous cleaning ready: '
             'frontier exploration -> visited-cell coverage, '
             f'footprint={self.robot_length_m:.2f}x{self.robot_width_m:.2f}m '
+            f'camera_overhang={self.camera_front_overhang_m:.2f}m, '
             f'pad={self.footprint_padding_m:.2f}m, '
             f'inflation_radius={self.robot_radius_m:.2f}m, '
             f'lidar_offset=({self.lidar_offset_x_m:.2f},{self.lidar_offset_y_m:.2f})m, '
@@ -1282,9 +1303,9 @@ class AutonomousCleaningNode(Node):
             right_pressure = self.scan_side_clearance_m - self.sectors.right
 
         pressure_delta = right_pressure - left_pressure
-        if abs(pressure_delta) < 0.03:
+        if abs(pressure_delta) < self.side_clearance_deadband_m:
             return 0.0
-        return 0.65 * pressure_delta
+        return self.side_clearance_gain * pressure_delta
 
     def _check_progress(self, now: float):
         if self.pose is None or self.target is None:
@@ -1551,14 +1572,15 @@ class AutonomousCleaningNode(Node):
         footprint = self._base_marker(7, Marker.LINE_STRIP, 'robot_model')
         footprint.scale.x = 0.025
         self._set_color(footprint, 0.0, 0.9, 0.8, 0.95)
-        half_x = self.footprint_half_x_m
+        front_x = self.footprint_front_x_m
+        rear_x = self.footprint_rear_x_m
         half_y = self.footprint_half_y_m
         corners = [
-            (half_x, half_y),
-            (half_x, -half_y),
-            (-half_x, -half_y),
-            (-half_x, half_y),
-            (half_x, half_y),
+            (front_x, half_y),
+            (front_x, -half_y),
+            (-rear_x, -half_y),
+            (-rear_x, half_y),
+            (front_x, half_y),
         ]
         for ox, oy in corners:
             point = Point()
