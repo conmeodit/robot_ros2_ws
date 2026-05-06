@@ -144,10 +144,10 @@ class AutonomousCleaningNode(Node):
         self.declare_parameter('max_angular_speed', 0.80)
         self.declare_parameter('heading_kp', 1.85)
 
-        self.declare_parameter('front_stop_distance_m', 0.18)
-        self.declare_parameter('emergency_stop_distance_m', 0.10)
+        self.declare_parameter('front_stop_distance_m', 0.0)
+        self.declare_parameter('emergency_stop_distance_m', 0.0)
         self.declare_parameter('slowdown_distance_m', 0.75)
-        self.declare_parameter('side_clearance_m', 0.10)
+        self.declare_parameter('side_clearance_m', 0.0)
         self.declare_parameter('side_clearance_gain', 0.65)
         self.declare_parameter('side_clearance_deadband_m', 0.03)
         self.declare_parameter('front_block_heading_threshold_rad', 0.55)
@@ -210,9 +210,10 @@ class AutonomousCleaningNode(Node):
             math.hypot(self.footprint_front_x_m, self.footprint_half_y_m),
             math.hypot(self.footprint_rear_x_m, self.footprint_half_y_m),
         )
+        self.use_circular_inflation = configured_robot_radius_m > 0.0
         self.robot_radius_m = (
             max(0.05, configured_robot_radius_m)
-            if configured_robot_radius_m > 0.0
+            if self.use_circular_inflation
             else self.footprint_radius_m
         )
         self.obstacle_threshold = int(self.get_parameter('obstacle_threshold').value)
@@ -281,16 +282,16 @@ class AutonomousCleaningNode(Node):
         self.heading_kp = max(0.1, float(self.get_parameter('heading_kp').value))
 
         self.front_stop_distance_m = max(
-            0.05, float(self.get_parameter('front_stop_distance_m').value)
+            0.0, float(self.get_parameter('front_stop_distance_m').value)
         )
         self.emergency_stop_distance_m = max(
-            0.05, float(self.get_parameter('emergency_stop_distance_m').value)
+            0.0, float(self.get_parameter('emergency_stop_distance_m').value)
         )
         self.slowdown_distance_m = max(
             self.front_stop_distance_m + 0.05,
             float(self.get_parameter('slowdown_distance_m').value),
         )
-        self.side_clearance_m = max(0.05, float(self.get_parameter('side_clearance_m').value))
+        self.side_clearance_m = max(0.0, float(self.get_parameter('side_clearance_m').value))
         self.side_clearance_gain = max(
             0.0, float(self.get_parameter('side_clearance_gain').value)
         )
@@ -434,7 +435,8 @@ class AutonomousCleaningNode(Node):
             f'footprint={self.robot_length_m:.2f}x{self.robot_width_m:.2f}m '
             f'camera_overhang={self.camera_front_overhang_m:.2f}m, '
             f'pad={self.footprint_padding_m:.2f}m, '
-            f'inflation_radius={self.robot_radius_m:.2f}m, '
+            f'inflation={"circle" if self.use_circular_inflation else "rectangle"} '
+            f'radius={self.robot_radius_m:.2f}m, '
             f'lidar_offset=({self.lidar_offset_x_m:.2f},{self.lidar_offset_y_m:.2f})m, '
             f'coverage_radius={self.coverage_visited_radius_m:.2f}m, '
             f'vision_obstacles={"on" if self.use_vision_obstacles else "off"}'
@@ -622,7 +624,6 @@ class AutonomousCleaningNode(Node):
         total = self.width * self.height
         self.inflated_obstacles = bytearray(total)
         self.passable = bytearray(total)
-        inflation_cells = int(math.ceil(self.robot_radius_m / max(self.resolution, 1e-6)))
 
         obstacle_mask = bytearray(total)
         data = self.map_msg.data
@@ -633,6 +634,18 @@ class AutonomousCleaningNode(Node):
         self._add_vision_obstacles_to_mask(obstacle_mask)
         obstacle_cells = self._filtered_obstacle_cells(obstacle_mask)
 
+        if self.use_circular_inflation:
+            self._inflate_obstacles_circular(obstacle_cells)
+        else:
+            self._inflate_obstacles_rectangular(obstacle_cells)
+
+        for index, value in enumerate(data):
+            cell_value = int(value)
+            if 0 <= cell_value < self.obstacle_threshold and not self.inflated_obstacles[index]:
+                self.passable[index] = 1
+
+    def _inflate_obstacles_circular(self, obstacle_cells: Sequence[int]):
+        inflation_cells = int(math.ceil(self.robot_radius_m / max(self.resolution, 1e-6)))
         radius_sq = inflation_cells * inflation_cells
         for index in obstacle_cells:
             cx = index % self.width
@@ -649,10 +662,23 @@ class AutonomousCleaningNode(Node):
                         continue
                     self.inflated_obstacles[self._index(gx, gy)] = 1
 
-        for index, value in enumerate(data):
-            cell_value = int(value)
-            if 0 <= cell_value < self.obstacle_threshold and not self.inflated_obstacles[index]:
-                self.passable[index] = 1
+    def _inflate_obstacles_rectangular(self, obstacle_cells: Sequence[int]):
+        front_cells = int(math.ceil(self.footprint_front_x_m / max(self.resolution, 1e-6)))
+        rear_cells = int(math.ceil(self.footprint_rear_x_m / max(self.resolution, 1e-6)))
+        side_cells = int(math.ceil(self.footprint_half_y_m / max(self.resolution, 1e-6)))
+
+        for index in obstacle_cells:
+            cx = index % self.width
+            cy = index // self.width
+            for dy in range(-side_cells, side_cells + 1):
+                gy = cy + dy
+                if gy < 0 or gy >= self.height:
+                    continue
+                for dx in range(-front_cells, rear_cells + 1):
+                    gx = cx + dx
+                    if gx < 0 or gx >= self.width:
+                        continue
+                    self.inflated_obstacles[self._index(gx, gy)] = 1
 
     def _add_vision_obstacles_to_mask(self, obstacle_mask: bytearray):
         if not self.use_vision_obstacles or not self.vision_obstacles:
