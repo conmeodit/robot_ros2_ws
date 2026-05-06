@@ -1,13 +1,133 @@
+import glob
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+def _truthy(value):
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _auto_arg(value):
+    return str(value).strip().lower() in ('auto', 'probe')
+
+
+def _canonical_device(path):
+    try:
+        return os.path.realpath(path)
+    except Exception:
+        return path
+
+
+def _video_number(path):
+    name = os.path.basename(_canonical_device(path))
+    if name.startswith('video'):
+        try:
+            return int(name[5:])
+        except ValueError:
+            return 999
+    return 999
+
+
+def _camera_score(path):
+    lowered = path.lower()
+    score = 0
+    if '/dev/v4l/by-id/' in lowered:
+        score += 100
+    if '/dev/v4l/by-path/' in lowered:
+        score += 80
+    if '/dev/video' in lowered:
+        score += 20
+    if 'video-index0' in lowered or 'index0' in lowered:
+        score += 60
+    if 'video-index1' in lowered or 'index1' in lowered:
+        score -= 40
+    if 'metadata' in lowered:
+        score -= 80
+    for hint in ('camera', 'webcam', 'uvc', 'usb'):
+        if hint in lowered:
+            score += 10
+    return score
+
+
+def _detect_camera_device(camera_device_arg):
+    if camera_device_arg and not _auto_arg(camera_device_arg):
+        return camera_device_arg, []
+
+    candidates = []
+    for pattern in ('/dev/v4l/by-id/*', '/dev/v4l/by-path/*', '/dev/video*'):
+        candidates.extend(sorted(glob.glob(pattern)))
+
+    unique = []
+    seen_devices = set()
+    for candidate in candidates:
+        device = _canonical_device(candidate)
+        if not os.path.exists(device):
+            continue
+        if device in seen_devices:
+            continue
+        unique.append(candidate)
+        seen_devices.add(device)
+
+    if not unique:
+        return '/dev/video0', [
+            '[vacuum_driver] camera_device=auto found no video devices; fallback to /dev/video0'
+        ]
+
+    selected = max(
+        unique,
+        key=lambda path: (_camera_score(path), -_video_number(path), path),
+    )
+    return selected, [
+        '[vacuum_driver] camera_device=auto selected: {} (candidates: {})'.format(
+            selected,
+            ', '.join(unique),
+        )
+    ]
+
+
+def camera_launch_setup(context, *args, **kwargs):
+    use_camera = LaunchConfiguration('use_camera').perform(context)
+    use_vision = LaunchConfiguration('use_vision').perform(context)
+    camera_enabled = _truthy(use_camera) or (_auto_arg(use_camera) and _truthy(use_vision))
+    if not camera_enabled:
+        return []
+
+    camera_device_arg = LaunchConfiguration('camera_device').perform(context)
+    camera_device, logs = _detect_camera_device(camera_device_arg)
+    camera_frame_id = LaunchConfiguration('camera_frame_id').perform(context)
+    camera_image_topic = LaunchConfiguration('camera_image_topic').perform(context)
+    camera_info_topic = LaunchConfiguration('camera_info_topic').perform(context)
+
+    actions = [LogInfo(msg=log) for log in logs]
+    actions.append(
+        Node(
+            package='v4l2_camera',
+            executable='v4l2_camera_node',
+            name='downward_camera',
+            output='screen',
+            parameters=[
+                {
+                    'video_device': camera_device,
+                    'camera_frame_id': camera_frame_id,
+                    'image_size': [640, 480],
+                    'time_per_frame': [1, 20],
+                }
+            ],
+            remappings=[
+                ('image_raw', camera_image_topic),
+                ('camera_info', camera_info_topic),
+            ],
+        )
+    )
+    return actions
 
 
 def generate_launch_description():
@@ -34,11 +154,8 @@ def generate_launch_description():
     hardware_params = LaunchConfiguration('hardware_params')
     rviz_config = LaunchConfiguration('rviz_config')
     use_vision = LaunchConfiguration('use_vision')
-    use_camera = LaunchConfiguration('use_camera')
     vision_params = LaunchConfiguration('vision_params')
     vision_model_path = LaunchConfiguration('vision_model_path')
-    camera_device = LaunchConfiguration('camera_device')
-    camera_frame_id = LaunchConfiguration('camera_frame_id')
     camera_image_topic = LaunchConfiguration('camera_image_topic')
     camera_info_topic = LaunchConfiguration('camera_info_topic')
 
@@ -76,38 +193,6 @@ def generate_launch_description():
             'camera_info_topic': camera_info_topic,
         }.items(),
         condition=IfCondition(use_vision),
-    )
-
-    camera_node = Node(
-        package='v4l2_camera',
-        executable='v4l2_camera_node',
-        name='downward_camera',
-        output='screen',
-        parameters=[
-            {
-                'video_device': camera_device,
-                'camera_frame_id': camera_frame_id,
-                'image_size': [640, 480],
-                'time_per_frame': [1, 20],
-            }
-        ],
-        remappings=[
-            ('image_raw', camera_image_topic),
-            ('camera_info', camera_info_topic),
-        ],
-        condition=IfCondition(
-            PythonExpression(
-                [
-                    "'",
-                    use_camera,
-                    "'.lower() == 'true' or ('",
-                    use_camera,
-                    "'.lower() == 'auto' and '",
-                    use_vision,
-                    "'.lower() == 'true')",
-                ]
-            )
-        ),
     )
 
     autonomy_node = Node(
@@ -184,14 +269,14 @@ def generate_launch_description():
             DeclareLaunchArgument('rviz_config', default_value=default_rviz_config),
             DeclareLaunchArgument('use_vision', default_value='false'),
             DeclareLaunchArgument('use_camera', default_value='auto'),
-            DeclareLaunchArgument('camera_device', default_value='/dev/video0'),
+            DeclareLaunchArgument('camera_device', default_value='auto'),
             DeclareLaunchArgument('camera_frame_id', default_value='camera_link'),
             DeclareLaunchArgument('vision_params', default_value=default_vision_params),
             DeclareLaunchArgument('vision_model_path', default_value=default_vision_model),
             DeclareLaunchArgument('camera_image_topic', default_value='/camera/image_raw'),
             DeclareLaunchArgument('camera_info_topic', default_value='/camera/camera_info'),
             mapping_launch,
-            camera_node,
+            OpaqueFunction(function=camera_launch_setup),
             vision_launch,
             autonomy_node,
         ]
