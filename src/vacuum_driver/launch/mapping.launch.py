@@ -16,13 +16,55 @@ except ImportError:
 
 
 DEFAULT_LIDAR_BAUDRATES = (115200, 256000, 460800, 1000000)
+DEFAULT_ARDUINO_BAUDRATES = (115200, 57600, 9600)
+ARDUINO_HINTS = ('arduino', 'mega', 'ch340', 'wch', '1a86', 'usb-serial', 'usb_serial')
+LIDAR_HINTS = ('lidar', 'rplidar', 'sllidar', 'slamtec', 'cp210', 'silicon_labs')
 
 
 def _truthy(value):
     return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _port_score(port_path):
+def _auto_arg(value):
+    return str(value).strip().lower() in ('auto', 'probe')
+
+
+def _canonical_device(path):
+    try:
+        return os.path.realpath(path)
+    except Exception:
+        return path
+
+
+def _serial_candidates(include_rfcomm=False):
+    patterns = [
+        '/dev/serial/by-id/*',
+        '/dev/serial/by-path/*',
+        '/dev/ttyUSB*',
+        '/dev/ttyACM*',
+    ]
+    if include_rfcomm:
+        patterns.insert(0, '/dev/rfcomm*')
+
+    candidates = []
+    for pattern in patterns:
+        candidates.extend(sorted(glob.glob(pattern)))
+
+    ordered = []
+    seen_devices = set()
+    for candidate in candidates:
+        device = _canonical_device(candidate)
+        if device not in seen_devices:
+            ordered.append(candidate)
+            seen_devices.add(device)
+    return ordered
+
+
+def _same_serial_device(a, b):
+    return _canonical_device(a) == _canonical_device(b)
+
+
+def _lidar_port_score(port_path):
     path = port_path.lower()
     score = 0
     if '/dev/serial/by-id/' in path:
@@ -33,31 +75,47 @@ def _port_score(port_path):
         score += 20
     if '/dev/ttyacm' in path:
         score += 10
-    for hint in ('lidar', 'rplidar', 'sllidar', 'slamtec', 'cp210', 'silicon_labs'):
+    for hint in LIDAR_HINTS:
         if hint in path:
             score += 30
-    for hint in ('arduino', 'mega', 'wch', 'ch340', 'usb-serial', 'rfcomm'):
+    for hint in ARDUINO_HINTS + ('rfcomm',):
         if hint in path:
             score -= 60
     return score
 
 
-def _detect_lidar_port():
-    candidates = []
-    candidates.extend(sorted(glob.glob('/dev/serial/by-id/*')))
-    candidates.extend(sorted(glob.glob('/dev/serial/by-path/*')))
-    candidates.extend(sorted(glob.glob('/dev/ttyUSB*')))
-    candidates.extend(sorted(glob.glob('/dev/ttyACM*')))
-    ordered = []
-    seen = set()
+def _arduino_port_score(port_path):
+    path = port_path.lower()
+    score = 0
+    if '/dev/rfcomm' in path:
+        score += 120
+    if '/dev/serial/by-id/' in path:
+        score += 100
+    if '/dev/serial/by-path/' in path:
+        score += 80
+    if '/dev/ttyacm' in path:
+        score += 35
+    if '/dev/ttyusb' in path:
+        score += 20
+    for hint in ARDUINO_HINTS:
+        if hint in path:
+            score += 50
+    for hint in LIDAR_HINTS:
+        if hint in path:
+            score -= 70
+    return score
+
+
+def _detect_lidar_candidates(exclude_ports=None):
+    exclude_ports = exclude_ports or []
+    candidates = _serial_candidates(include_rfcomm=False)
+    filtered = []
     for candidate in candidates:
-        if candidate not in seen:
-            ordered.append(candidate)
-            seen.add(candidate)
-    if not ordered:
-        return '/dev/ttyUSB0', []
-    ranked = sorted(ordered, key=lambda port: (_port_score(port), port), reverse=True)
-    return ranked[0], ordered
+        if any(_same_serial_device(candidate, excluded) for excluded in exclude_ports if excluded):
+            continue
+        filtered.append(candidate)
+    ranked = sorted(filtered, key=lambda port: (_lidar_port_score(port), port), reverse=True)
+    return ranked, candidates
 
 
 def _read_probe_response(ser, timeout_sec=0.65):
@@ -128,9 +186,116 @@ def _probe_sllidar_baudrate(port, baudrate):
         return False, str(exc)
 
 
+def _probe_arduino_baudrate(port, baudrate):
+    if serial is None:
+        return False, 'python3-serial is not available in the launch environment'
+
+    try:
+        with serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            timeout=0.05,
+            write_timeout=0.2,
+        ) as ser:
+            time.sleep(0.25)
+            try:
+                ser.reset_input_buffer()
+            except Exception:
+                pass
+
+            ser.write(b'PING\n')
+            ser.flush()
+            deadline = time.monotonic() + 1.0
+            seen = []
+            while time.monotonic() < deadline:
+                line = ser.readline()
+                if not line:
+                    time.sleep(0.02)
+                    continue
+                text = line.decode(errors='ignore').strip()
+                if not text:
+                    continue
+                seen.append(text)
+                if text.startswith(('PONG', 'BOOT', 'READY', 'STAT')):
+                    return True, text
+        return False, 'no Arduino protocol response' + (': ' + '; '.join(seen[:3]) if seen else '')
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _resolve_arduino_baudrate(port, baudrate_arg):
+    if not _auto_arg(baudrate_arg):
+        return int(baudrate_arg), []
+
+    failures = []
+    for baudrate in DEFAULT_ARDUINO_BAUDRATES:
+        ok, detail = _probe_arduino_baudrate(port, baudrate)
+        if ok:
+            return baudrate, [
+                '[vacuum_driver] arduino_baudrate=auto selected: {} on {} '
+                '(probe response: {})'.format(baudrate, port, detail)
+            ]
+        failures.append('{}: {}'.format(baudrate, detail))
+
+    fallback = DEFAULT_ARDUINO_BAUDRATES[0]
+    return fallback, [
+        '[vacuum_driver] arduino_baudrate=auto could not verify Arduino on {}. '
+        'Fallback to {}. Probe failures: {}'.format(port, fallback, '; '.join(failures))
+    ]
+
+
+def _resolve_arduino_port_and_baudrate(port_arg, baudrate_arg):
+    if port_arg and not _auto_arg(port_arg):
+        baudrate, logs = _resolve_arduino_baudrate(port_arg, baudrate_arg)
+        return port_arg, baudrate, logs
+
+    candidates = _serial_candidates(include_rfcomm=True)
+    if not candidates:
+        fallback_port = '/dev/rfcomm0'
+        fallback_baudrate = DEFAULT_ARDUINO_BAUDRATES[0]
+        return fallback_port, fallback_baudrate, [
+            '[vacuum_driver] arduino auto-detect found no serial devices. '
+            'Fallback to {} at {} baud.'.format(fallback_port, fallback_baudrate)
+        ]
+
+    ranked = sorted(candidates, key=lambda port: (_arduino_port_score(port), port), reverse=True)
+    baudrates = (
+        DEFAULT_ARDUINO_BAUDRATES
+        if _auto_arg(baudrate_arg)
+        else (int(baudrate_arg),)
+    )
+
+    failures = []
+    for port in ranked:
+        for baudrate in baudrates:
+            ok, detail = _probe_arduino_baudrate(port, baudrate)
+            if ok:
+                return port, baudrate, [
+                    '[vacuum_driver] Arduino auto-detect selected: {} at {} baud '
+                    '(probe response: {}; candidates: {})'.format(
+                        port,
+                        baudrate,
+                        detail,
+                        ', '.join(ranked),
+                    )
+                ]
+            failures.append('{}@{}: {}'.format(port, baudrate, detail))
+
+    fallback_port = ranked[0]
+    fallback_baudrate = DEFAULT_ARDUINO_BAUDRATES[0]
+    return fallback_port, fallback_baudrate, [
+        '[vacuum_driver] Arduino auto-detect could not verify the protocol on any serial '
+        'device. Fallback to {} at {} baud. Probe failures: {}'.format(
+            fallback_port,
+            fallback_baudrate,
+            '; '.join(failures),
+        )
+    ]
+
+
 def _resolve_lidar_baudrate(port, baudrate_arg):
     value = str(baudrate_arg).strip().lower()
-    if value not in ('auto', 'probe'):
+    if not _auto_arg(value):
         return int(baudrate_arg), None
 
     failures = []
@@ -152,6 +317,66 @@ def _resolve_lidar_baudrate(port, baudrate_arg):
     )
 
 
+def _resolve_lidar_port_and_baudrate(port_arg, baudrate_arg, exclude_ports=None):
+    if port_arg and not _auto_arg(port_arg):
+        if not _auto_arg(baudrate_arg):
+            return port_arg, int(baudrate_arg), []
+        baudrate, log = _resolve_lidar_baudrate(port_arg, baudrate_arg)
+        return port_arg, baudrate, [log] if log else []
+
+    ranked, candidates = _detect_lidar_candidates(exclude_ports=exclude_ports)
+    if not ranked:
+        fallback_port = '/dev/ttyUSB0'
+        fallback_baudrate = DEFAULT_LIDAR_BAUDRATES[0]
+        return fallback_port, fallback_baudrate, [
+            '[vacuum_driver] lidar_port=auto found no non-Arduino serial devices. '
+            'Fallback to {} at {} baud. All candidates: {}'.format(
+                fallback_port,
+                fallback_baudrate,
+                ', '.join(candidates) if candidates else '<none>',
+            )
+        ]
+
+    if not _auto_arg(baudrate_arg):
+        selected = ranked[0]
+        baudrate = int(baudrate_arg)
+        return selected, baudrate, [
+            '[vacuum_driver] lidar_port=auto selected by port hints: {} at {} baud '
+            '(non-Arduino candidates: {})'.format(
+                selected,
+                baudrate,
+                ', '.join(ranked),
+            )
+        ]
+
+    failures = []
+    for port in ranked:
+        for baudrate in DEFAULT_LIDAR_BAUDRATES:
+            ok, detail = _probe_sllidar_baudrate(port, baudrate)
+            if ok:
+                return port, baudrate, [
+                    '[vacuum_driver] lidar auto-detect selected: {} at {} baud '
+                    '(probe response: {}; non-Arduino candidates: {})'.format(
+                        port,
+                        baudrate,
+                        detail,
+                        ', '.join(ranked),
+                    )
+                ]
+            failures.append('{}@{}: {}'.format(port, baudrate, detail))
+
+    fallback_port = ranked[0]
+    fallback_baudrate = DEFAULT_LIDAR_BAUDRATES[0]
+    return fallback_port, fallback_baudrate, [
+        '[vacuum_driver] lidar auto-detect could not verify a SLLIDAR on any non-Arduino '
+        'serial device. Fallback to {} at {} baud. Probe failures: {}'.format(
+            fallback_port,
+            fallback_baudrate,
+            '; '.join(failures),
+        )
+    ]
+
+
 def launch_setup(context, *args, **kwargs):
     pkg_share = get_package_share_directory('vacuum_driver')
     slam_share = get_package_share_directory('slam_toolbox')
@@ -166,37 +391,31 @@ def launch_setup(context, *args, **kwargs):
     slam_params = LaunchConfiguration('slam_params').perform(context)
     hardware_params = LaunchConfiguration('hardware_params').perform(context)
     rviz_config = LaunchConfiguration('rviz_config').perform(context)
-    arduino_port = LaunchConfiguration('arduino_port').perform(context)
-    arduino_baudrate = int(LaunchConfiguration('arduino_baudrate').perform(context))
+    arduino_port_arg = LaunchConfiguration('arduino_port').perform(context)
+    arduino_baudrate_arg = LaunchConfiguration('arduino_baudrate').perform(context)
     lidar_port_arg = LaunchConfiguration('lidar_port').perform(context)
     lidar_baudrate_arg = LaunchConfiguration('lidar_baudrate').perform(context)
     raw_scan_topic = LaunchConfiguration('raw_scan_topic').perform(context)
     scan_topic = LaunchConfiguration('scan_topic').perform(context)
 
     actions = []
-    if lidar_port_arg == 'auto':
-        lidar_port, candidates = _detect_lidar_port()
-        if candidates:
-            actions.append(
-                LogInfo(
-                    msg='[vacuum_driver] lidar_port=auto selected: {} (candidates: {})'.format(
-                        lidar_port,
-                        ', '.join(candidates),
-                    )
-                )
-            )
-        else:
-            actions.append(
-                LogInfo(
-                    msg='[vacuum_driver] lidar_port=auto found no devices, fallback to /dev/ttyUSB0'
-                )
-            )
-    else:
-        lidar_port = lidar_port_arg
+    arduino_port, arduino_baudrate, arduino_logs = _resolve_arduino_port_and_baudrate(
+        arduino_port_arg,
+        arduino_baudrate_arg,
+    )
+    for log in arduino_logs:
+        actions.append(LogInfo(msg=log))
 
-    lidar_baudrate, baudrate_log = _resolve_lidar_baudrate(lidar_port, lidar_baudrate_arg)
-    if baudrate_log:
-        actions.append(LogInfo(msg=baudrate_log))
+    lidar_port = None
+    lidar_baudrate = None
+    if use_lidar:
+        lidar_port, lidar_baudrate, lidar_logs = _resolve_lidar_port_and_baudrate(
+            lidar_port_arg,
+            lidar_baudrate_arg,
+            exclude_ports=[arduino_port],
+        )
+        for log in lidar_logs:
+            actions.append(LogInfo(msg=log))
 
     driver_node = Node(
         package='vacuum_driver',
@@ -349,7 +568,7 @@ def generate_launch_description():
             DeclareLaunchArgument('use_scan_filter', default_value='true'),
             DeclareLaunchArgument('reset_slam', default_value='true'),
             DeclareLaunchArgument('arduino_port', default_value='auto'),
-            DeclareLaunchArgument('arduino_baudrate', default_value='115200'),
+            DeclareLaunchArgument('arduino_baudrate', default_value='auto'),
             DeclareLaunchArgument('lidar_port', default_value='auto'),
             DeclareLaunchArgument('lidar_baudrate', default_value='auto'),
             DeclareLaunchArgument('raw_scan_topic', default_value='/scan/raw'),

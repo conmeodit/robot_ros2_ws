@@ -174,7 +174,7 @@ def generate_launch_description():
             DeclareLaunchArgument('use_scan_filter', default_value='true'),
             DeclareLaunchArgument('reset_slam', default_value='true'),
             DeclareLaunchArgument('arduino_port', default_value='auto'),
-            DeclareLaunchArgument('arduino_baudrate', default_value='115200'),
+            DeclareLaunchArgument('arduino_baudrate', default_value='auto'),
             DeclareLaunchArgument('lidar_port', default_value='auto'),
             DeclareLaunchArgument('lidar_baudrate', default_value='auto'),
             DeclareLaunchArgument('raw_scan_topic', default_value='/scan/raw'),

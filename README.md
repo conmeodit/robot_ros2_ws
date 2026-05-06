@@ -18,7 +18,7 @@ cd ~/robot_ros2_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 source install/setup.bash
-ros2 launch vacuum_driver autonomous_mapping.launch.py use_vision:=true use_rviz:=false
+ros2 launch vacuum_driver autonomous_mapping.launch.py use_vision:=false use_rviz:=false
 
 #automap + vision trash obstacle layer
 #put YOLO model at src/robot_vision/models/best.pt first
